@@ -66,6 +66,16 @@ export function ReportPage({ id, tab }: { id: string; tab: string }): JSX.Elemen
   const report = data.report;
   const active = TABS.some((t) => t.id === tab) ? tab : 'overview';
   const goTab = (t: string): void => navigate(`/report/${id}/${t}`);
+  // Tabs follow the WAI-ARIA pattern: only the active tab is in the Tab order; arrows, Home and End move between tabs.
+  const onTabKey = (e: KeyboardEvent): void => {
+    const i = TABS.findIndex((t) => t.id === active);
+    const next = e.key === 'ArrowRight' ? (i + 1) % TABS.length : e.key === 'ArrowLeft' ? (i - 1 + TABS.length) % TABS.length : e.key === 'Home' ? 0 : e.key === 'End' ? TABS.length - 1 : -1;
+    if (next < 0) return;
+    e.preventDefault();
+    const target = TABS[next] as (typeof TABS)[number];
+    goTab(target.id);
+    requestAnimationFrame(() => document.getElementById(`tab-${target.id}`)?.focus());
+  };
 
   const rerun = async (keyword: string, ownUrl: string | null): Promise<void> => {
     setBusy(true);
@@ -133,7 +143,7 @@ export function ReportPage({ id, tab }: { id: string; tab: string }): JSX.Elemen
 
       <div class="tabs" role="tablist" aria-label="Раздели на отчета">
         {TABS.map((t) => (
-          <button key={t.id} type="button" role="tab" id={`tab-${t.id}`} class="tab" aria-selected={active === t.id} aria-controls="tabpanel" tabIndex={active === t.id ? 0 : -1} onClick={() => goTab(t.id)}>
+          <button key={t.id} type="button" role="tab" id={`tab-${t.id}`} class="tab" aria-selected={active === t.id} aria-controls="tabpanel" tabIndex={active === t.id ? 0 : -1} onClick={() => goTab(t.id)} onKeyDown={onTabKey}>
             {t.label}
             {t.id === 'opportunities' ? <span class="count">{opportunityCount}</span> : null}
             {t.id === 'competitors' ? <span class="count">{report.competitors.length}</span> : null}

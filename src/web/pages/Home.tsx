@@ -166,6 +166,7 @@ function History({ rows, onDelete }: { rows: ReportSummary[]; onDelete: (r: Repo
 export function HomePage({ status }: { status: StatusResponse }): JSX.Element {
   const settings = useAsync(() => api.settings(), []);
   const reports = useAsync(() => api.reports(), []);
+  const jobs = useAsync(() => api.jobs(), []);
   const [form, setForm] = useState<FormState>(INITIAL);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -186,6 +187,20 @@ export function HomePage({ status }: { status: StatusResponse }): JSX.Element {
       competitors: f.competitors || (d && s.competitors.length === 0 ? d.competitors.join('\n') : ''),
     }));
   }, [settings.data]);
+
+  // An analysis keeps running when the user leaves its page: show it here, and refresh the history when it ends.
+  const running = (jobs.data?.jobs ?? []).filter((j) => j.status === 'queued' || j.status === 'running');
+  const runningCount = running.length;
+  const wasRunning = useRef(0);
+  useEffect(() => {
+    if (runningCount === 0) return;
+    const timer = setInterval(jobs.reload, 3000);
+    return () => clearInterval(timer);
+  }, [runningCount, jobs.reload]);
+  useEffect(() => {
+    if (wasRunning.current > runningCount) reports.reload();
+    wasRunning.current = runningCount;
+  }, [runningCount, reports.reload]);
 
   const trackedCount = settings.data?.settings.competitors.length ?? 0;
   const manualMode = !status.serp.configured;
@@ -273,6 +288,18 @@ export function HomePage({ status }: { status: StatusResponse }): JSX.Element {
       </div>
 
       <Setup status={status} />
+
+      {running.length > 0 ? (
+        <Callout>
+          <strong>В момента тече анализ:</strong>{' '}
+          {running.map((j, i) => (
+            <span key={j.id}>
+              {i > 0 ? ', ' : ''}
+              <a href={`#/run/${encodeURIComponent(j.id)}`}>„{j.keyword}“ ({Math.round(j.last?.pct ?? 0)}%)</a>
+            </span>
+          ))}
+        </Callout>
+      ) : null}
 
       <div class="grid grid-main" style={{ alignItems: 'start' }}>
         <form class="card stack-lg" onSubmit={submit} noValidate aria-describedby={problem ? 'form-problem' : undefined}>

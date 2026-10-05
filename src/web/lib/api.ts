@@ -56,6 +56,7 @@ export const api = {
   removeCompetitor: (domain: string) => request<{ settings: Settings }>('DELETE', `/api/competitors/${encodeURIComponent(domain)}`),
   competitorOverview: () => request<{ competitors: CompetitorOverviewRow[] }>('GET', '/api/competitors/overview'),
   startAnalysis: (body: AnalyzeRequestInput) => request<{ job: JobState }>('POST', '/api/analyses', body),
+  jobs: () => request<{ jobs: JobState[] }>('GET', '/api/jobs'),
   job: (id: string) => request<{ job: JobState }>('GET', `/api/jobs/${encodeURIComponent(id)}`),
   cancelJob: (id: string) => request<{ ok: true }>('DELETE', `/api/jobs/${encodeURIComponent(id)}`),
   reports: () => request<{ reports: ReportSummary[] }>('GET', '/api/reports'),
