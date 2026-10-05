@@ -1,0 +1,44 @@
+{
+  "name": "jev-seo-radar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Jev SEO Radar — конкурентен SEO анализ: SERP + crawl + типизирани решения от Jev (TypeSafe System One).",
+  "engines": {
+    "node": ">=20.12"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c blue,magenta \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "tsx watch src/server/index.ts",
+    "dev:web": "vite",
+    "demo": "tsx src/server/index.ts --demo",
+    "build": "npm run build:web && npm run build:server",
+    "build:web": "vite build",
+    "build:server": "esbuild src/server/index.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=dist/server.mjs",
+    "start": "node dist/server.mjs",
+    "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.web.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "doctor": "tsx scripts/doctor.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.3",
+    "@typesafe-ai/sdk": "0.6.0",
+    "cheerio": "^1.2.0",
+    "hono": "^4.13.13",
+    "tldts": "^7.4.16",
+    "undici": "^8.11.2",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.6",
+    "@types/node": "^22.20.5",
+    "concurrently": "^10.0.5",
+    "esbuild": "^0.28.2",
+    "preact": "^11.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2",
+    "vitest": "^5.0.3"
+  }
+}
