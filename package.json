@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Jev SEO Radar — конкурентен SEO анализ: SERP + crawl + типизирани решения от Jev (TypeSafe System One).",
   "engines": {
-    "node": ">=20.12"
+    "node": ">=22.19.0"
   },
   "scripts": {
     "dev": "concurrently -k -n server,web -c blue,magenta \"npm:dev:server\" \"npm:dev:web\"",
@@ -34,6 +34,7 @@
     "@preact/preset-vite": "^2.10.6",
     "@types/node": "^22.20.5",
     "concurrently": "^10.0.5",
+    "domhandler": "^6.0.1",
     "esbuild": "^0.28.2",
     "preact": "^11.0.0",
     "tsx": "^4.23.15",
