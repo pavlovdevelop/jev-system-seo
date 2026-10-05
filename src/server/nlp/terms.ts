@@ -131,12 +131,19 @@ const jaccard = (a: ReadonlySet<string>, b: ReadonlySet<string>): number => {
 /**
  * Greedy clustering of headings by overlap of their content terms. Headings from different pages that
  * talk about the same thing ("Цени на изработка", "Колко струва изработката на сайт") land together.
+ *
+ * `ignore` holds terms every heading shares by construction (the keyword's own words): left in, they would
+ * glue unrelated subtopics together ("Колко струва изработката на сайт" + "Как протича изработката на сайт").
  */
-export function clusterHeadings(headingsByDoc: readonly (readonly string[])[], threshold = 0.4): HeadingCluster[] {
+export function clusterHeadings(
+  headingsByDoc: readonly (readonly string[])[],
+  threshold = 0.4,
+  ignore: ReadonlySet<string> = new Set(),
+): HeadingCluster[] {
   const items: HeadingItem[] = [];
   headingsByDoc.forEach((headings, doc) => {
     for (const text of headings) {
-      const t = new Set(contentTerms(text));
+      const t = new Set(contentTerms(text).filter((term) => !ignore.has(term)));
       if (t.size > 0) items.push({ doc, text, terms: t });
     }
   });
