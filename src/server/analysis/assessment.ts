@@ -52,8 +52,8 @@ const FIT_INFORMATIONAL: Record<PageType, number> = {
 export const STRENGTH_WEIGHTS = { typeFit: 0.3, dedicated: 0.25, titleMatch: 0.2, depth: 0.15, dominance: 0.1 } as const;
 export const POSITION_WEIGHTS = [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.25, 0.2] as const;
 /** Weakness at or above this → "easy" SERP; at or above MEDIUM_AT → "medium"; else "hard". */
-export const EASY_AT = 0.55;
-export const MEDIUM_AT = 0.4;
+export const EASY_AT = 0.5;
+export const MEDIUM_AT = 0.38;
 
 const positionWeight = (position: number): number => POSITION_WEIGHTS[position - 1] ?? 0.1;
 

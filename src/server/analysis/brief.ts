@@ -81,7 +81,7 @@ export function buildBrief(input: BriefInput): ContentBrief {
   const mustCover =
     texts.length >= 3
       ? pruneSubsumed(minePhrases(texts, { maxN: 3, minPages }))
-          .filter((p) => !p.key.split(' ').every((t) => terms.has(t)))
+          .filter((p) => !keywordTerms(p.display).every((t) => terms.has(t)))
           .slice(0, 15)
           .map((p) => ({ term: p.display, pages: p.pages, share: Math.round((p.pages / texts.length) * 100) / 100 }))
       : [];

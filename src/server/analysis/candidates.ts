@@ -59,6 +59,12 @@ export function generateCandidates(input: CandidateInputs): Candidate[] {
     out.set(key, entry);
   };
   const touchesSeed = (phrase: string): boolean => keywordTerms(phrase).some((t) => seedTerms.has(t));
+  // Phrases mined from running text are only usable as keywords when they contain the whole seed topic;
+  // otherwise they are fragments ("цена на изработка") rather than something anyone would search for.
+  const containsSeed = (phrase: string): boolean => {
+    const have = new Set(keywordTerms(phrase));
+    return [...seedTerms].every((t) => have.has(t)) && have.size > seedTerms.size;
+  };
 
   // 1. Google's own suggestions
   for (const r of input.serp.relatedSearches) add(r, 'related');
@@ -82,7 +88,7 @@ export function generateCandidates(input: CandidateInputs): Candidate[] {
       add(`${input.seed} ${w.display}`, 'competitor_terms', w.pages);
     }
     const phrases = pruneSubsumed(minePhrases(input.competitors.map((c) => c.text), { maxN: 3, minPages: Math.max(3, Math.ceil(n * 0.3)) }));
-    for (const ph of phrases.filter((p) => p.n >= 2 && touchesSeed(p.display)).slice(0, 10)) add(ph.display, 'competitor_terms', ph.pages);
+    for (const ph of phrases.filter((p) => p.n >= 2 && containsSeed(p.display)).slice(0, 10)) add(ph.display, 'competitor_terms', ph.pages);
   }
 
   // 3. Variations

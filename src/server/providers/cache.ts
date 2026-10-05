@@ -130,21 +130,13 @@ export class CachedFetcher implements PageFetcher {
   constructor(
     private readonly inner: PageFetcher,
     private readonly cache: DiskCache,
-    private readonly meter: Meter,
   ) {}
 
   async fetchPage(url: string, options?: { signal?: AbortSignal }): Promise<FetchedPage> {
     const hit = await this.cache.get<FetchedPage>('page', url);
-    if (hit) {
-      this.meter.pageCacheHits++;
-      return { ...hit, fromCache: true };
-    }
+    if (hit) return { ...hit, fromCache: true };
     const page = await this.inner.fetchPage(url, options);
-    if (page.status === 'ok') {
-      this.meter.pagesFetched++;
-      await this.cache.set('page', url, page);
-    } else if (page.status === 'blocked_robots') this.meter.pagesBlocked++;
-    else this.meter.pagesFailed++;
+    if (page.status === 'ok') await this.cache.set('page', url, page);
     return page;
   }
 }

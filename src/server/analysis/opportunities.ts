@@ -15,7 +15,7 @@ import { hasLocalModifier } from './lexicon';
 
 export const OPPORTUNITY_WEIGHTS = { weakness: 0.5, commercial: 0.2, specificity: 0.15, demand: 0.15 } as const;
 export const NEUTRAL = { weakness: 0.35, demand: 0.4 } as const;
-export const LABEL_THRESHOLDS = { quickWin: 55, good: 45, hard: 30, unverifiedCap: 55 } as const;
+export const LABEL_THRESHOLDS = { quickWin: 52, good: 42, hard: 28, unverifiedCap: 52 } as const;
 export const MIN_RELEVANCE = 0.5;
 
 export interface OpportunityInput {

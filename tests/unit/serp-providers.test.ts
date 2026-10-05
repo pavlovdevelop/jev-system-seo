@@ -264,20 +264,18 @@ describe('caching and run budget', () => {
     expect(meter.volumeCalls).toBe(2);
   });
 
-  it('CachedFetcher stores only successful pages and counts outcomes', async () => {
+  it('CachedFetcher stores only successful pages', async () => {
     const ok: FetchedPage = { status: 'ok', httpStatus: 200, finalUrl: 'https://a.example/', html: '<p>x</p>', error: null, ttfbMs: 5, bytes: 8, fromCache: false };
     const fail: FetchedPage = { ...ok, status: 'http_error', httpStatus: 500, html: null, error: 'HTTP 500' };
     const robots: FetchedPage = { ...ok, status: 'blocked_robots', html: null, error: 'robots' };
     let calls = 0;
     const inner = { async fetchPage(url: string) { calls++; return url.includes('bad') ? fail : url.includes('robots') ? robots : ok; } };
-    const meter = new Meter({ maxSerpCalls: 1, maxPages: 10 });
-    const f = new CachedFetcher(inner, new DiskCache(dir, 60_000), meter);
+    const f = new CachedFetcher(inner, new DiskCache(dir, 60_000));
     await f.fetchPage('https://a.example/');
     expect((await f.fetchPage('https://a.example/')).fromCache).toBe(true);
     await f.fetchPage('https://bad.example/');
     await f.fetchPage('https://bad.example/');
     await f.fetchPage('https://robots.example/');
     expect(calls).toBe(4); // ok once, bad twice (not cached), robots once
-    expect(meter).toMatchObject({ pagesFetched: 1, pagesFailed: 2, pagesBlocked: 1, pageCacheHits: 1 });
   });
 });

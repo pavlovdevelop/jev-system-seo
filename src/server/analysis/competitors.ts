@@ -80,8 +80,8 @@ export function buildCompetitorProfiles(input: ProfileInput): CompetitorProfile[
       },
       seedPage: page ? { url: page.url, position: page.position, title: page.title } : null,
       scorecard: page && page.composite.overall !== null ? page.composite : null,
-      strengths: signals.filter((s) => s.kind === 'strength').slice(0, 6),
-      weaknesses: signals.filter((s) => s.kind === 'weakness').slice(0, 6),
+      strengths: signals.filter((s) => s.kind === 'strength').slice(0, 8),
+      weaknesses: signals.filter((s) => s.kind === 'weakness').slice(0, 8),
       vulnerableKeywords: (acc?.vulnerable ?? []).sort((a, b) => b.position - a.position).slice(0, 5),
     };
   });

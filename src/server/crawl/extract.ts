@@ -40,6 +40,8 @@ const squash = (s: string): string => s.replace(/\s+/g, ' ').trim();
 
 function jsonLdTypes($: CheerioAPI): string[] {
   const found = new Set<string>();
+  // Only page-level entities count (top level and @graph members). Nested objects such as the Question/Answer
+  // pairs inside a FAQPage or a PostalAddress describe parts of an entity, not what kind of page this is.
   const visit = (node: unknown): void => {
     if (Array.isArray(node)) return node.forEach(visit);
     if (!node || typeof node !== 'object') return;
@@ -47,7 +49,7 @@ function jsonLdTypes($: CheerioAPI): string[] {
     const t = obj['@type'];
     if (typeof t === 'string') found.add(t);
     else if (Array.isArray(t)) t.forEach((x) => typeof x === 'string' && found.add(x));
-    for (const value of Object.values(obj)) if (value && typeof value === 'object') visit(value);
+    if (obj['@graph']) visit(obj['@graph']);
   };
   $('script[type="application/ld+json"]').each((_, el) => {
     const raw = $(el).contents().text().trim();

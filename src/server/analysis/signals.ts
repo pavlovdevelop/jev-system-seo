@@ -44,6 +44,18 @@ const make: Make = (kind, id, label, evidence, source, confidence) => ({ id, kin
 
 const GENERIC_SCHEMA = new Set(['webpage', 'website', 'breadcrumblist', 'imageobject', 'sitenavigationelement', 'wpheader', 'wpfooter', 'searchaction', 'readaction']);
 
+// What matters most when comparing providers comes first (content quality and conversion/trust elements before
+// technical hygiene), so a capped list of signals keeps the decision-relevant ones.
+const PRIORITY: readonly string[] = [
+  'deep_content', 'pricing', 'portfolio', 'reviews', 'cta', 'identity', 'long_content', 'dedicated_to_query', 'keyword_in_title_h1', 'faq', 'schema_markup', 'fresh', 'image_alt', 'fast_response',
+  'thin_content', 'shallow_topic', 'generic_text', 'not_dedicated', 'off_intent_type', 'keyword_missing_title', 'no_pricing', 'no_cta', 'no_portfolio', 'no_reviews', 'no_identity', 'below_median_length',
+  'no_h1', 'multiple_h1', 'no_meta', 'meta_length', 'title_length', 'no_schema', 'no_faq', 'no_viewport', 'no_https', 'noindex', 'image_alt_missing', 'outdated', 'slow_response',
+];
+const rank = (id: string): number => {
+  const i = PRIORITY.indexOf(id);
+  return i === -1 ? PRIORITY.length : i;
+};
+
 export function pageSignals(input: SignalInput, peers: PeerStats, now: Date = new Date()): Signal[] {
   const { metrics: m, judgments: j, fetch } = input;
   const out: Signal[] = [];
@@ -151,5 +163,5 @@ export function pageSignals(input: SignalInput, peers: PeerStats, now: Date = ne
   if (fetch.ttfbMs !== null && fetch.ttfbMs > 1500 && fetch.status === 'ok') {
     add(make('weakness', 'slow_response', 'Бавен сървърен отговор', `${nbsp(fetch.ttfbMs)} ms (измерено от нашия сървър — ориентировъчно)`, 'measured', 'low'));
   }
-  return out;
+  return out.sort((a, b) => rank(a.id) - rank(b.id));
 }
