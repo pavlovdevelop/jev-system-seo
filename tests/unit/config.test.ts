@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { ConfigError, describeJev, loadConfig } from '../../src/server/config';
 
@@ -66,5 +67,36 @@ describe('loadConfig', () => {
     const d = describeJev(loadConfig(env({ JEV_API_KEY: 'super-secret' }), []).jev);
     expect(JSON.stringify(d)).not.toContain('super-secret');
     expect(d).toEqual({ flavor: 'typesafe', model: 'jev-latest', host: 'api.typesafe.ai' });
+  });
+});
+
+describe('.env.example', () => {
+  const text = readFileSync(new URL('../../.env.example', import.meta.url), 'utf8');
+  // KEY=value lines, whether active or commented out as an optional example
+  const entries = [...text.matchAll(/^#?\s?([A-Z][A-Z0-9_]+)=(.*)$/gm)].map((m) => ({ name: m[1] as string, value: (m[2] as string).trim(), active: !m[0].startsWith('#') }));
+
+  it('lists the settings (guards the parsing below against silently matching nothing)', () => {
+    expect(entries.length).toBeGreaterThan(20);
+    expect(entries.map((e) => e.name)).toEqual(expect.arrayContaining(['JEV_API_KEY', 'SERPER_API_KEY', 'APP_PASSWORD', 'DATA_DIR']));
+  });
+
+  it('loads as a valid configuration when copied unchanged to .env', () => {
+    const active = Object.fromEntries(entries.filter((e) => e.active).map((e) => [e.name, e.value]));
+    const c = loadConfig(env(active), []);
+    expect(c.jev).toBeNull();
+    expect(c.serp).toBeNull();
+    expect(c.appPassword).toBeNull();
+    expect(c.host).toBe('127.0.0.1');
+  });
+
+  it('documents only variables the server actually reads', () => {
+    const source = ['../../src/server/config.ts', '../../src/server/index.ts'].map((f) => readFileSync(new URL(f, import.meta.url), 'utf8')).join('\n');
+    const unknown = entries.map((e) => e.name).filter((name) => !source.includes(name));
+    expect(unknown).toEqual([]);
+  });
+
+  it('every commented-out example is also valid when switched on', () => {
+    const all = Object.fromEntries(entries.filter((e) => e.name !== 'SERP_PROVIDER' && e.name !== 'VOLUME_PROVIDER' && e.name !== 'DEMO_MODE' && e.name !== 'ALLOW_PUBLIC_WITHOUT_PASSWORD').map((e) => [e.name, e.value || 'x']));
+    expect(() => loadConfig(env({ ...all, JEV_API_KEY: 'k', SERPER_API_KEY: 'k' }), [])).not.toThrow();
   });
 });
