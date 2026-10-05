@@ -1,4 +1,5 @@
 import { getDomain, getHostname } from 'tldts';
+import { stripInvisible } from '../../../shared/text';
 import type { Market } from '../../../shared/markets';
 import type { SerpData } from '../../../shared/schemas';
 
@@ -62,7 +63,7 @@ export function domainOf(url: string): string {
 
 export const isHttpUrl = (url: string): boolean => /^https?:\/\//i.test(url);
 
-const squash = (s: string | undefined | null): string => (s ?? '').replace(/\s+/g, ' ').trim();
+const squash = (s: string | undefined | null): string => stripInvisible(s ?? '').replace(/\s+/g, ' ').trim();
 
 /** Builds a SerpData from loosely-typed provider rows, dropping non-http links and duplicate URLs. */
 export function buildSerpData(input: {

@@ -47,6 +47,11 @@ export class Runtime {
     };
   }
 
+  /** Deletes cache files older than the TTL (called at startup and now and then). */
+  pruneCache(): Promise<number> {
+    return this.cache.prune();
+  }
+
   private liveSerp(): SerpProvider | null {
     const s = this.config.serp;
     if (!s) return null;

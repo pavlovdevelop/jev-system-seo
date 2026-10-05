@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
+import { ID_PATTERN } from '../../shared/ids';
 
 // ───────────── async data ─────────────
 export interface Async<T> {
@@ -43,11 +44,17 @@ export type Route =
   | { name: 'notfound' };
 
 export function parseRoute(hash: string): Route {
-  const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
+  let parts: string[];
+  try {
+    parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
+  } catch {
+    return { name: 'notfound' }; // a malformed escape such as "%E0%A4%A" must not blank the whole app
+  }
   const [a, b, c] = parts;
   if (!a) return { name: 'home' };
-  if (a === 'run' && b) return { name: 'run', jobId: b };
-  if (a === 'report' && b) return { name: 'report', id: b, tab: c ?? 'overview' };
+  // ids go into API paths, so only well-formed ones get that far ("..", "%2F" and the like are not routes)
+  if (a === 'run' && b) return ID_PATTERN.test(b) ? { name: 'run', jobId: b } : { name: 'notfound' };
+  if (a === 'report' && b) return ID_PATTERN.test(b) ? { name: 'report', id: b, tab: c ?? 'overview' } : { name: 'notfound' };
   if (a === 'competitors') return { name: 'competitors' };
   if (a === 'settings') return { name: 'settings' };
   return { name: 'notfound' };

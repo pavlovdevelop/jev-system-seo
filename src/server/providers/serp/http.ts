@@ -29,6 +29,8 @@ export async function postJson(url: string, body: unknown, options: PostJsonOpti
         method: 'POST',
         headers: { 'content-type': 'application/json', accept: 'application/json', ...options.headers },
         body: JSON.stringify(body),
+        // The vendor's endpoint never needs to redirect, and fetch would forward the X-API-KEY header to wherever it pointed.
+        redirect: 'error',
         signal,
       });
     } catch (err) {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { bgCount } from '../../src/shared/plural';
 import { estimateRun, parseDomains, parseUrls, tokens } from '../../src/web/lib/form';
+import { parseRoute } from '../../src/web/lib/hooks';
 
 // The form helpers are pure functions, so they are tested here without a browser.
 
@@ -72,5 +73,23 @@ describe('bgCount', () => {
     expect(bgCount(1, 'страница', 'страници')).toBe('1 страница');
     expect(bgCount(0, 'страница', 'страници')).toBe('0 страници');
     expect(bgCount(5, 'страница', 'страници')).toBe('5 страници');
+  });
+});
+
+describe('parseRoute', () => {
+  it('understands the app routes', () => {
+    expect(parseRoute('')).toEqual({ name: 'home' });
+    expect(parseRoute('#/')).toEqual({ name: 'home' });
+    expect(parseRoute('#/competitors')).toEqual({ name: 'competitors' });
+    expect(parseRoute('#/settings')).toEqual({ name: 'settings' });
+    expect(parseRoute('#/report/r_muvqmdncd33aad8e')).toEqual({ name: 'report', id: 'r_muvqmdncd33aad8e', tab: 'overview' });
+    expect(parseRoute('#/report/r_muvqmdncd33aad8e/opportunities')).toEqual({ name: 'report', id: 'r_muvqmdncd33aad8e', tab: 'opportunities' });
+    expect(parseRoute('#/run/j_muvqt11184fd7aeb')).toEqual({ name: 'run', jobId: 'j_muvqt11184fd7aeb' });
+  });
+
+  it('turns malformed escapes and path tricks into "not found" instead of a blank page or an odd API call', () => {
+    for (const hash of ['#/%', '#/run/%E0%A4%A', '#/run/..', '#/report/..', '#/report/%2e%2e', '#/report/..%2F..%2Fetc', '#/report/r_UPPER', '#/run/x', '#/nope', '#/report/r_ab/../x']) {
+      expect(parseRoute(hash), hash).toEqual({ name: 'notfound' });
+    }
   });
 });

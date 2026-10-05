@@ -13,12 +13,20 @@ export interface RobotsGroup {
 
 const stripBom = (text: string): string => (text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
 
+// A robots.txt is untrusted input from the site we are about to visit. RFC 9309 asks crawlers to read at least 500 KiB;
+// beyond these limits lines and rules are ignored rather than parsed, so a hostile file cannot make matching expensive.
+const MAX_LINE = 2_048;
+const MAX_PATTERN = 1_024;
+const MAX_RULES = 5_000;
+
 export function parseRobots(text: string): RobotsGroup[] {
   const groups: RobotsGroup[] = [];
   let current: RobotsGroup | null = null;
   let lastWasAgent = false;
 
+  let ruleCount = 0;
   for (const rawLine of stripBom(text).split(/\r?\n/)) {
+    if (rawLine.length > MAX_LINE) continue;
     const line = rawLine.replace(/#.*$/, '').trim();
     if (!line) continue;
     const colon = line.indexOf(':');
@@ -36,7 +44,10 @@ export function parseRobots(text: string): RobotsGroup[] {
       continue;
     }
     if (key === 'allow' || key === 'disallow') {
-      if (current && value !== '') current.rules.push({ allow: key === 'allow', pattern: value });
+      if (current && value !== '' && value.length <= MAX_PATTERN && ruleCount < MAX_RULES) {
+        current.rules.push({ allow: key === 'allow', pattern: value });
+        ruleCount++;
+      }
       lastWasAgent = false;
       continue;
     }
@@ -45,14 +56,28 @@ export function parseRobots(text: string): RobotsGroup[] {
   return groups;
 }
 
-function patternToRegExp(pattern: string): RegExp {
+/**
+ * Does a robots.txt path pattern match the start of `path`? `*` matches any run of characters and a trailing `$`
+ * anchors the end. Written without regular expressions on purpose: a pattern such as `/*a*a*a*a*b` becomes a regex
+ * that backtracks for minutes on a long path, and the pattern comes from the site being crawled.
+ * Each wildcard-separated piece is located with indexOf, leftmost first, which is exactly what `.*` allows and
+ * costs O(path × pieces) in the worst case.
+ */
+export function patternMatches(pattern: string, path: string): boolean {
   const anchored = pattern.endsWith('$');
-  const body = anchored ? pattern.slice(0, -1) : pattern;
-  const source = body
-    .split('*')
-    .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
-    .join('.*');
-  return new RegExp(`^${source}${anchored ? '$' : ''}`);
+  const pieces = (anchored ? pattern.slice(0, -1) : pattern).split('*');
+  const first = pieces[0] as string;
+  if (!path.startsWith(first)) return false;
+  if (pieces.length === 1) return anchored ? path === first : true;
+  let position = first.length;
+  for (let i = 1; i < pieces.length - 1; i++) {
+    const found = path.indexOf(pieces[i] as string, position);
+    if (found === -1) return false;
+    position = found + (pieces[i] as string).length;
+  }
+  const last = pieces[pieces.length - 1] as string;
+  // the last piece must end the path when anchored, and may otherwise sit anywhere after the previous pieces
+  return anchored ? path.length - last.length >= position && path.endsWith(last) : path.indexOf(last, position) !== -1;
 }
 
 /** Rules that apply to `userAgent`: the groups naming it (substring match, case-insensitive), else the `*` groups. */
@@ -66,7 +91,7 @@ export function rulesFor(groups: readonly RobotsGroup[], userAgent: string): Rob
 export function isPathAllowed(rules: readonly RobotsRule[], pathWithQuery: string): boolean {
   let best: { length: number; allow: boolean } | null = null;
   for (const rule of rules) {
-    if (!patternToRegExp(rule.pattern).test(pathWithQuery)) continue;
+    if (!patternMatches(rule.pattern, pathWithQuery)) continue;
     const length = rule.pattern.replace(/\$$/, '').length;
     if (!best || length > best.length || (length === best.length && rule.allow && !best.allow)) {
       best = { length, allow: rule.allow };

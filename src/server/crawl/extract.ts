@@ -1,7 +1,9 @@
-import * as cheerio from 'cheerio';
-import type { Cheerio, CheerioAPI } from 'cheerio';
-import type { AnyNode } from 'domhandler';
+import * as cheerio from 'cheerio/slim';
+import type { CheerioAPI } from 'cheerio';
+import type { AnyNode, ChildNode, Element, ParentNode } from 'domhandler';
+import { DomHandler, Parser } from 'htmlparser2';
 import type { Heading, PageMetrics } from '../../shared/schemas';
+import { stripInvisible } from '../../shared/text';
 import type { ExtractedPage } from '../jev/questions';
 import { containsKeyword, coverage, looksLikeQuestion, slugMatchesKeyword, startsWithKeyword } from '../nlp/bg';
 
@@ -9,7 +11,35 @@ import { containsKeyword, coverage, looksLikeQuestion, slugMatchesKeyword, start
 // Everything numeric lives here, in code — Jev is not a calculator (docs.typesafe.ai/model-jaggedness/jev-1.13).
 
 const MAX_FULL_TEXT = 60_000;
-const BLOCK_ELEMENTS = 'p,div,li,ul,ol,h1,h2,h3,h4,h5,h6,tr,td,th,section,article,header,footer,blockquote,dt,dd,figcaption,main,aside,nav,form,table';
+
+// A competitor's page is untrusted input and this runs on the thread that also serves the web UI. Every step below is
+// linear in the size of the page, and these limits keep that size (and the shape of the tree) bounded.
+/** Markup past this many characters is ignored (CRAWL_MAX_BYTES already caps what is downloaded). */
+const MAX_HTML_CHARS = 1_500_000;
+/** Elements nested deeper than this are flattened into their parent: real pages stay far below, browsers cap near 512. */
+const MAX_DEPTH = 256;
+/** Chunk size and time budget of the parser (see parseBounded); a page nesting more than this many levels past MAX_DEPTH is cut off. */
+const PARSE_CHUNK = 32_768;
+const PARSE_BUDGET_MS = 2_500;
+const MAX_OVERFLOW = 2_000;
+/** Text scanned with regular expressions. */
+const MAX_SCAN_TEXT = 400_000;
+/** How many elements of one kind are examined (links, buttons, forms, articles, schema blocks). */
+const MAX_ELEMENTS = 5_000;
+/** One extraction may not hold the thread longer than this; a page that needs more is reported as not analysable. */
+const TIME_BUDGET_MS = 4_000;
+
+export class ExtractError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ExtractError';
+  }
+}
+
+const BLOCK_ELEMENTS = new Set([
+  'p', 'div', 'li', 'ul', 'ol', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'tr', 'td', 'th', 'section', 'article', 'header', 'footer',
+  'blockquote', 'dt', 'dd', 'figcaption', 'main', 'aside', 'nav', 'form', 'table',
+]);
 
 const CTA_RE =
   /(поръч|заяви|заявка|свържи|свържете|запитване|оферт|консултаци|безплатн|започн|разбер|виж\s+цен|изпрат|обади|звънни|купи|регистр|пробв|демо|contact|get\s+(?:a\s+)?(?:quote|started)|request|order|buy|book|free\s+(?:quote|consult)|call\s+us|start\s+now)/iu;
@@ -17,7 +47,8 @@ const PRICE_CURRENCY_RE = /(?:от\s+)?\d[\d\s.,]{0,8}\s?(?:лв\.?|лева|bgn
 const PRICE_WORD_RE = /(?<![\p{L}])(?:ценова\s+листа|ценообразуване|цени|цената|цена|pricing|price)(?![\p{L}])/giu;
 // A phone number starts with +, 00 or a national trunk 0 — this keeps company IDs (ЕИК 123456789) and years out.
 const PHONE_RE = /(?<![\w.])(?:\+|00|0)\d[\d\s().-]{6,16}\d/g;
-const EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}/gi;
+// Bounded quantifiers: an unbounded `[a-z0-9._%+-]+` makes every long run of those characters (no "@" needed) quadratic.
+const EMAIL_RE = /[a-z0-9._%+-]{1,64}@[a-z0-9-]{1,63}(?:\.[a-z0-9-]{1,63}){0,8}\.[a-z]{2,24}/gi;
 const SOCIAL_PROOF_RE = /(доволн[иа]|клиент|отзив|препоръ|проект|портфолио|референци|рейтинг|оценк|testimonial|case\s+study|★|⭐)/iu;
 const WORK_HEADING_RE = /(портфолио|проекти|референци|клиент|отзив|case|работи|примери|portfolio|testimonial)/iu;
 const ABOUT_RE = /(за\s+нас|кои\s+сме|екип|about|team|компания)/iu;
@@ -27,16 +58,31 @@ const REGISTRATION_RE = /(?<![\p{L}])(?:ЕИК|булстат|ддс\s*(?:ном
 const ENTITY_RE = /(?<![\p{L}])(?:ЕООД|ООД|АД|ЕТ)(?![\p{L}])/u;
 const IMAGE_EXT = /\.(?:png|jpe?g|gif|webp|svg|avif)$/i;
 
-const NOISE_SELECTORS = [
-  'script', 'style', 'noscript', 'template', 'svg', 'canvas', 'iframe', 'object', 'embed', 'link', 'meta',
-  '[hidden]', '[aria-hidden="true"]',
-  '[style*="display:none"]', '[style*="display: none"]', '[style*="visibility:hidden"]', '[style*="visibility: hidden"]',
-  '[style*="font-size:0"]', '[style*="opacity:0"]', '[style*="left:-9999"]',
-  'div[id*="cookie" i], div[class*="cookie" i], section[class*="cookie" i], aside[class*="cookie" i]',
-  'div[id*="consent" i], div[class*="consent" i], div[id*="gdpr" i], div[class*="gdpr" i]',
-].join(',');
+const NOISE_TAGS = new Set(['script', 'style', 'noscript', 'template', 'svg', 'canvas', 'iframe', 'object', 'embed', 'link', 'meta']);
+// Hidden by inline style. "font-size:0" and "opacity:0" must not match "0.9em" or "0.5", hence the exact forms.
+const HIDDEN_STYLE_RE = /display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*0(?:px|em|rem|%|pt)?\s*(?:;|!|$)|opacity\s*:\s*0(?:\.0+)?\s*(?:;|!|$)|left\s*:\s*-9999/i;
+const COOKIE_TAGS = new Set(['div', 'section', 'aside']);
+const COOKIE_RE = /cookie/i;
+const CONSENT_RE = /consent|gdpr/i;
+const CHROME_ROLES = new Set(['navigation', 'contentinfo', 'complementary']);
 
-const squash = (s: string): string => s.replace(/\s+/g, ' ').trim();
+/** Elements that are not page content: scripts, hidden text (a trick to show crawlers something else), cookie banners. */
+function isNoise(el: Element): boolean {
+  if (NOISE_TAGS.has(el.name)) return true;
+  const a = el.attribs;
+  if ('hidden' in a || a['aria-hidden'] === 'true') return true;
+  if (a.style && HIDDEN_STYLE_RE.test(a.style)) return true;
+  if (COOKIE_TAGS.has(el.name) && (COOKIE_RE.test(a.id ?? '') || COOKIE_RE.test(a.class ?? ''))) return true;
+  if (el.name === 'div' && (CONSENT_RE.test(a.id ?? '') || CONSENT_RE.test(a.class ?? ''))) return true;
+  return false;
+}
+
+/** Navigation, footers and sidebars: what surrounds the content. */
+function isChrome(el: Element): boolean {
+  return el.name === 'nav' || el.name === 'footer' || el.name === 'aside' || CHROME_ROLES.has(el.attribs.role ?? '');
+}
+
+const squash = (s: string): string => stripInvisible(s).replace(/\s+/g, ' ').trim();
 
 function jsonLdTypes($: CheerioAPI): string[] {
   const found = new Set<string>();
@@ -51,35 +97,167 @@ function jsonLdTypes($: CheerioAPI): string[] {
     else if (Array.isArray(t)) t.forEach((x) => typeof x === 'string' && found.add(x));
     if (obj['@graph']) visit(obj['@graph']);
   };
-  $('script[type="application/ld+json"]').each((_, el) => {
-    const raw = $(el).contents().text().trim();
-    if (!raw) return;
+  $('script[type="application/ld+json"]')
+    .slice(0, 20)
+    .each((_, el) => {
+    const raw = plainText(el).trim();
+    if (!raw || raw.length > 200_000) return;
     try {
       visit(JSON.parse(raw));
     } catch {
       // Many sites ship slightly broken JSON-LD; the types are simply unknown then.
     }
-  });
-  $('[itemtype]').each((_, el) => {
+    });
+  $('[itemtype]')
+    .slice(0, 200)
+    .each((_, el) => {
     const t = ($(el).attr('itemtype') ?? '').split('/').pop();
     if (t) found.add(t);
-  });
+    });
   return [...found].slice(0, 20);
 }
 
-/** Text of an element with block boundaries preserved as newlines (so words never glue together). */
-function blockText($: CheerioAPI, root: Cheerio<AnyNode>): string {
-  const clone = root.clone();
-  clone.find('br').replaceWith('\n');
-  clone.find(BLOCK_ELEMENTS).each((_, el) => {
-    $(el).append('\n');
-  });
-  return clone
-    .text()
+const isElement = (n: AnyNode): n is Element => n.type === 'tag' || n.type === 'script' || n.type === 'style';
+const childrenOf = (n: AnyNode): readonly ChildNode[] => ('children' in n ? (n.children as ChildNode[]) : []);
+
+/** Concatenated text nodes of a subtree (what jQuery's .text() returns), without recursion. */
+function plainText(root: AnyNode): string {
+  const out: string[] = [];
+  const stack: AnyNode[] = [root];
+  while (stack.length > 0) {
+    const n = stack.pop() as AnyNode;
+    if (n.type === 'text') out.push(n.data);
+    else if (n.type !== 'comment') {
+      const kids = childrenOf(n);
+      for (let i = kids.length - 1; i >= 0; i--) stack.push(kids[i] as ChildNode);
+    }
+  }
+  return out.join('');
+}
+
+const END_OF_BLOCK = Symbol('end of block');
+
+/**
+ * Text of a subtree with block boundaries and <br> kept as newlines (so words never glue together), one trimmed line
+ * per block. `skip` prunes whole subtrees. One pass, no cloning: the previous clone + find + append version was
+ * quadratic in cheerio.
+ */
+function blockText(root: AnyNode, skip?: (el: Element) => boolean): string {
+  const out: string[] = [];
+  const stack: Array<AnyNode | typeof END_OF_BLOCK> = [root];
+  while (stack.length > 0) {
+    const n = stack.pop() as AnyNode | typeof END_OF_BLOCK;
+    if (n === END_OF_BLOCK) {
+      out.push('\n');
+      continue;
+    }
+    if (n.type === 'text') {
+      out.push(n.data);
+      continue;
+    }
+    if (n.type === 'comment') continue;
+    if (isElement(n)) {
+      if (n.name === 'br') {
+        out.push('\n');
+        continue;
+      }
+      if (skip?.(n)) continue;
+      if (BLOCK_ELEMENTS.has(n.name)) stack.push(END_OF_BLOCK);
+    }
+    const kids = childrenOf(n);
+    for (let i = kids.length - 1; i >= 0; i--) stack.push(kids[i] as ChildNode);
+  }
+  return out
+    .join('')
     .split('\n')
     .map(squash)
     .filter(Boolean)
     .join('\n');
+}
+
+/** h1–h4 elements in document order, not looking inside navigation chrome; stops after `limit`. */
+function collectHeadings(root: AnyNode, limit: number): Array<{ level: number; el: Element }> {
+  const found: Array<{ level: number; el: Element }> = [];
+  const stack: AnyNode[] = [root];
+  while (stack.length > 0 && found.length < limit) {
+    const n = stack.pop() as AnyNode;
+    if (isElement(n)) {
+      if (isChrome(n)) continue;
+      if (/^h[1-4]$/.test(n.name)) found.push({ level: Number(n.name[1]), el: n });
+    }
+    const kids = childrenOf(n);
+    for (let i = kids.length - 1; i >= 0; i--) stack.push(kids[i] as ChildNode);
+  }
+  return found;
+}
+
+/**
+ * Removes noise elements in one pass: each parent's child list is filtered once. cheerio's .remove() splices the
+ * parent's array per element, which is quadratic for a parent with many removable children (e.g. 100 000 <script>).
+ */
+function stripNoise(root: ParentNode): void {
+  const stack: ParentNode[] = [root];
+  while (stack.length > 0) {
+    const parent = stack.pop() as ParentNode;
+    const kids = parent.children;
+    const kept: ChildNode[] = [];
+    for (const child of kids) {
+      if (isElement(child) && child.name !== 'html' && child.name !== 'body' && isNoise(child)) continue;
+      kept.push(child);
+      if ('children' in child) stack.push(child as ParentNode);
+    }
+    if (kept.length === kids.length) continue;
+    parent.children = kept;
+    kept.forEach((c, i) => {
+      c.parent = parent;
+      c.prev = kept[i - 1] ?? null;
+      c.next = kept[i + 1] ?? null;
+    });
+  }
+}
+
+/** htmlparser2 with a depth limit: deeper elements are not created, their text lands in the deepest allowed parent. */
+class BoundedHandler extends DomHandler {
+  private open = 0;
+  private overflow = 0;
+  /** True once the page nests absurdly deep (thousands of levels past the limit): the rest of it is not worth reading. */
+  tooDeep = false;
+
+  override onopentag(name: string, attribs: { [key: string]: string }): void {
+    if (this.open >= MAX_DEPTH) {
+      if (++this.overflow > MAX_OVERFLOW) this.tooDeep = true;
+      return;
+    }
+    this.open++;
+    super.onopentag(name, attribs);
+  }
+
+  override onclosetag(): void {
+    if (this.overflow > 0) {
+      this.overflow--;
+      return;
+    }
+    this.open--;
+    super.onclosetag();
+  }
+}
+
+/**
+ * The parser keeps its own stack of open tags and that stack costs more per tag the deeper the page nests, which the
+ * handler cannot prevent. So the page is fed in chunks and parsing stops as soon as it gets absurdly deep, or fails
+ * if it eats its time budget: whatever the shape of the input, the thread is held for a bounded time.
+ */
+function parseBounded(html: string): ParentNode {
+  const handler = new BoundedHandler();
+  const parser = new Parser(handler, { decodeEntities: true });
+  const startedAt = performance.now();
+  for (let i = 0; i < html.length; i += PARSE_CHUNK) {
+    parser.write(html.slice(i, i + PARSE_CHUNK));
+    if (handler.tooDeep) break;
+    if (performance.now() - startedAt > PARSE_BUDGET_MS) throw new ExtractError('Страницата е твърде сложна за разбор (стъпка „разбор“)');
+  }
+  parser.end();
+  return handler.root as unknown as ParentNode;
 }
 
 const wordCountOf = (text: string): number => (text.match(/[\p{L}\p{N}]+/gu) ?? []).length;
@@ -118,13 +296,15 @@ function contextsAround(text: string, re: RegExp, radius: number, limit: number)
     if (i < coveredUntil) continue; // already inside the previous snippet
     let from = Math.max(0, i - radius);
     let to = Math.min(text.length, i + m[0].length + radius);
+    // Look for a word boundary inside the snippet only (bounded windows: a text without spaces must not be rescanned)
     if (from > 0 && /\S/.test(text[from - 1] ?? '')) {
-      const space = text.indexOf(' ', from);
-      if (space !== -1 && space < i) from = space + 1;
+      const space = text.slice(from, i).indexOf(' ');
+      if (space !== -1) from = from + space + 1;
     }
     if (to < text.length && /\S/.test(text[to] ?? '')) {
-      const space = text.lastIndexOf(' ', to);
-      if (space > i + m[0].length) to = space;
+      const start = i + m[0].length;
+      const space = text.slice(start, to).lastIndexOf(' ');
+      if (space > 0) to = start + space;
     }
     coveredUntil = to;
     const ctx = squash(text.slice(from, to));
@@ -145,7 +325,12 @@ export interface ExtractContext {
 }
 
 export function extractPage(html: string, ctx: ExtractContext): ExtractedPage {
-  const $ = cheerio.load(html);
+  const startedAt = performance.now();
+  const checkBudget = (step: string): void => {
+    if (performance.now() - startedAt > TIME_BUDGET_MS) throw new ExtractError(`Страницата е твърде сложна за разбор (стъпка „${step}“)`);
+  };
+  const $ = cheerio.load(parseBounded(html.length > MAX_HTML_CHARS ? html.slice(0, MAX_HTML_CHARS) : html) as never);
+  checkBudget('разбор');
   const now = ctx.now ?? new Date();
   const pageHost = (() => {
     try {
@@ -174,19 +359,22 @@ export function extractPage(html: string, ctx: ExtractContext): ExtractedPage {
 
   const navLabels = uniqueLimited(
     $('nav a, header a, [role="navigation"] a')
-      .map((_, el) => $(el).text())
+      .slice(0, 300)
+      .map((_, el) => plainText(el))
       .get(),
     12,
     40,
   );
 
   // ── strip noise, then measure the visible page ──────────────────────────────────────────────
-  $(NOISE_SELECTORS).not('html, body').remove();
-  $('*').contents().filter((_, n) => n.type === 'comment').remove();
+  stripNoise($.root().get(0) as unknown as ParentNode);
+  checkBudget('почистване');
 
   // Contact signals live in footers/headers too, so measure them on the whole visible body.
-  const bodyAll = $('body').length ? $('body') : $.root();
-  const allText = blockText($, bodyAll as Cheerio<AnyNode>);
+  const bodyNode = ($('body').get(0) ?? $.root().get(0)) as AnyNode;
+  const wholeText = blockText(bodyNode);
+  const allText = wholeText.length > MAX_SCAN_TEXT ? wholeText.slice(0, MAX_SCAN_TEXT) : wholeText;
+  checkBudget('текст');
   const telLinks = new Set(
     $('a[href^="tel:" i]')
       .map((_, el) => ($(el).attr('href') ?? '').replace(/\D/g, ''))
@@ -207,6 +395,7 @@ export function extractPage(html: string, ctx: ExtractContext): ExtractedPage {
 
   const hasContactForm =
     $('form')
+      .slice(0, 50)
       .filter((_, form) => {
         const f = $(form);
         if (f.is('[role="search"]') || f.find('input[type="search"]').length > 0) return false;
@@ -218,11 +407,9 @@ export function extractPage(html: string, ctx: ExtractContext): ExtractedPage {
 
   const ctaTexts = uniqueLimited(
     $('a, button, input[type="submit"], input[type="button"]')
-      .map((_, el) => {
-        const e = $(el);
-        return e.is('input') ? (e.attr('value') ?? '') : e.text();
-      })
-      .get()
+      .toArray()
+      .slice(0, MAX_ELEMENTS)
+      .map((el) => (isElement(el) && el.name === 'input' ? (el.attribs.value ?? '') : plainText(el)))
       .filter((t) => CTA_RE.test(t)),
     10,
     60,
@@ -232,50 +419,53 @@ export function extractPage(html: string, ctx: ExtractContext): ExtractedPage {
     $('[rel="author"], [itemprop="author"], .author, .byline, .post-author').length > 0 || /(?<![\p{L}])автор\s*:/iu.test(allText);
 
   // ── main content ────────────────────────────────────────────────────────────────────────────
-  let root: Cheerio<AnyNode> | null = null;
-  const main = $('main, [role="main"]').first();
-  if (main.length && main.text().trim().length >= 300) root = main as Cheerio<AnyNode>;
-  if (!root) {
-    let best: Cheerio<AnyNode> | null = null;
+  let contentRoot: AnyNode | null = null;
+  let withoutChrome = false;
+  const mainEl = $('main, [role="main"]').first().get(0);
+  if (mainEl && plainText(mainEl).trim().length >= 300) contentRoot = mainEl;
+  if (!contentRoot) {
+    let best: AnyNode | null = null;
     let bestLen = 0;
-    $('article').each((_, el) => {
-      const len = $(el).text().trim().length;
-      if (len > bestLen) {
-        best = $(el) as Cheerio<AnyNode>;
-        bestLen = len;
-      }
-    });
-    if (best && bestLen >= 600) root = best;
+    $('article')
+      .slice(0, MAX_ELEMENTS)
+      .each((_, el) => {
+        const len = plainText(el).trim().length;
+        if (len > bestLen) {
+          best = el;
+          bestLen = len;
+        }
+      });
+    if (best && bestLen >= 600) contentRoot = best;
   }
-  if (!root) {
-    const body = (bodyAll as Cheerio<AnyNode>).clone();
-    body.find('nav, footer, aside, [role="navigation"], [role="contentinfo"], [role="complementary"], header nav').remove();
-    root = body;
+  if (!contentRoot) {
+    contentRoot = bodyNode; // no <main>/<article>: the body without navigation, footers and sidebars
+    withoutChrome = true;
   }
-  const mainText = blockText($, root);
+  const mainText = blockText(contentRoot, withoutChrome ? isChrome : undefined);
   const full = mainText.slice(0, MAX_FULL_TEXT);
-  const wordCount = wordCountOf(mainText);
+  const wordCount = wordCountOf(mainText.length > MAX_SCAN_TEXT ? mainText.slice(0, MAX_SCAN_TEXT) : mainText);
+  checkBudget('съдържание');
 
   // ── headings (whole visible body minus navigation chrome, so the hero H1 is included) ───────
-  const chromeFree = (bodyAll as Cheerio<AnyNode>).clone();
-  chromeFree.find('nav, footer, aside, [role="navigation"], [role="contentinfo"], [role="complementary"]').remove();
   const headings: Heading[] = [];
-  chromeFree.find('h1, h2, h3, h4').each((_, el) => {
-    const text = squash($(el).text());
-    if (!text || text.length > 200) return;
-    const level = Number((el as { tagName?: string }).tagName?.[1] ?? 2);
+  for (const { level, el } of collectHeadings(bodyNode, 400)) {
+    const text = squash(plainText(el));
+    if (!text || text.length > 200) continue;
     const prev = headings[headings.length - 1];
-    if (prev && prev.level === level && prev.text === text) return;
+    if (prev && prev.level === level && prev.text === text) continue;
     headings.push({ level, text });
-  });
-  const cappedHeadings = headings.slice(0, 60);
+    if (headings.length >= 60) break;
+  }
+  const cappedHeadings = headings;
   const h1 = cappedHeadings.filter((h) => h.level === 1).map((h) => h.text);
   const outline = cappedHeadings.slice(0, 80).map((h) => `H${h.level}: ${h.text}`);
 
   // ── links and images ────────────────────────────────────────────────────────────────────────
   let internal = 0;
   let external = 0;
-  $('a[href]').each((_, el) => {
+  $('a[href]')
+    .slice(0, MAX_ELEMENTS)
+    .each((_, el) => {
     const href = ($(el).attr('href') ?? '').trim();
     if (!href || href.startsWith('#') || /^(?:javascript|mailto|tel|sms):/i.test(href)) return;
     try {
@@ -285,9 +475,12 @@ export function extractPage(html: string, ctx: ExtractContext): ExtractedPage {
     } catch {
       // unparsable href: ignore
     }
-  });
+    });
   const images = $('img');
-  const imagesWithAlt = images.filter((_, el) => squash($(el).attr('alt') ?? '').length > 0).length;
+  const imagesWithAlt = images
+    .toArray()
+    .slice(0, MAX_ELEMENTS)
+    .filter((el) => isElement(el) && squash(el.attribs.alt ?? '').length > 0).length;
 
   // ── conversion / trust evidence ─────────────────────────────────────────────────────────────
   const priceMentions = contextsAround(allText, PRICE_CURRENCY_RE, 30, 8);

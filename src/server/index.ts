@@ -45,6 +45,9 @@ async function main(): Promise<void> {
   const store = new Store(config.dataDir);
   await store.init();
   const runtime = new Runtime(config);
+  const prune = (): void => void runtime.pruneCache().catch(() => undefined);
+  prune();
+  setInterval(prune, 6 * 3_600_000).unref();
   const logger = { info: (m: string) => console.log(`[radar] ${m}`), error: (m: string, e?: unknown) => console.error(`[radar] ${m}`, e) };
   const jobs = new JobManager({ store, runtime, maxConcurrent: config.limits.maxConcurrentJobs, logger });
 
@@ -59,7 +62,7 @@ async function main(): Promise<void> {
     console.log(line(status.jev.configured, config.demo ? 'Jev: демо (mock)' : status.jev.configured ? `Jev: ${status.jev.model} @ ${status.jev.host}` : 'Jev: НЕ Е НАСТРОЕН — задай JEV_API_KEY в .env'));
     console.log(line(status.serp.configured, config.demo ? 'SERP: демо' : status.serp.configured ? `SERP: ${status.serp.provider}` : 'SERP: няма доставчик — ще работи само ръчен режим (URL адреси). Добави SERPER_API_KEY за автоматично търсене.'));
     console.log(line(status.volume.configured, config.demo ? 'Търсения/мес: демо' : status.volume.configured ? 'Търсения/мес: DataForSEO' : 'Търсения/мес: няма източник (по желание: DataForSEO)'));
-    console.log(line(config.appPassword !== null, config.appPassword ? 'Достъп: защитен с парола' : 'Достъп: без парола (само от този компютър)'));
+    console.log(line(config.appPassword !== null, config.appPassword ? 'Достъп: защитен с парола' : isLoopbackHost(config.host) ? 'Достъп: без парола (само от този компютър)' : 'Достъп: БЕЗ ПАРОЛА, а адресът е достъпен от мрежата'));
     if (!existsSync(webRoot)) console.log('  ! Интерфейсът не е build-нат. За разработка ползвай „npm run dev“ (http://localhost:5173), за продукция „npm run build“.');
     console.log('');
   });

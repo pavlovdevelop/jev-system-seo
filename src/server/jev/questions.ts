@@ -2,6 +2,7 @@ import { choice, noul, score, type EntryType } from '@typesafe-ai/sdk';
 import type { Intent, PageType } from '../../shared/domain';
 import { MARKETS, type MarketId } from '../../shared/markets';
 import type { PageMetrics } from '../../shared/schemas';
+import { stripInvisible } from '../../shared/text';
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // The Jev question catalogue.
@@ -115,20 +116,11 @@ export const shallowQuestions = {
 
 // ───────────────────────── state builders ─────────────────────────
 
-const ch = (n: number): string => String.fromCharCode(n);
-const span = (from: number, to: number): string => `${ch(from)}-${ch(to)}`;
-// Built from code points on purpose: U+2028/U+2029 inside a regex literal would be a syntax error.
-const INVISIBLE_CHARS = new RegExp(`[${span(0x200b, 0x200f)}${span(0x2028, 0x202f)}${span(0x2060, 0x206f)}${ch(0xfeff)}]`, 'g');
-
 /** Text prepared for Jev: invisible/control characters removed, whitespace collapsed, clipped on a word boundary. */
 export function clip(text: string | null | undefined, max: number): string {
   if (!text) return '';
-  const cleaned = text
-    // zero-width, bidi, line/paragraph separators and BOM: invisible to a reader, visible to a model
-    .replace(INVISIBLE_CHARS, '')
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  // zero-width, bidi, separators, BOM, tag characters: invisible to a reader, visible to a model
+  const cleaned = stripInvisible(text).replace(/\s+/g, ' ').trim();
   if (cleaned.length <= max) return cleaned;
   const cut = cleaned.slice(0, max);
   const lastSpace = cut.lastIndexOf(' ');

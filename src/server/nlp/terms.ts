@@ -92,16 +92,25 @@ export function minePhrases(docs: readonly string[], options: MineOptions = {}):
 /**
  * Drops phrases that are fully contained in a longer phrase with (almost) the same reach,
  * so the output shows "изработка на сайт" instead of also listing "изработка" and "сайт" separately.
+ *
+ * Linear in the number of phrases: every phrase registers its contiguous sub-phrases with the widest reach of any
+ * phrase containing them, and a phrase is shadowed when that reach is within `tolerance` of its own. (Checking every
+ * pair is quadratic, which a competitor's page with a huge vocabulary can turn into many seconds.)
  */
 export function pruneSubsumed(stats: readonly PhraseStat[], tolerance = 0.85): PhraseStat[] {
-  const keep: PhraseStat[] = [];
-  for (const s of stats) {
-    const shadowed = stats.some(
-      (longer) => longer.n > s.n && longer.pages >= s.pages * tolerance && (` ${longer.key} `).includes(` ${s.key} `),
-    );
-    if (!shadowed) keep.push(s);
+  const widestContaining = new Map<string, number>();
+  for (const longer of stats) {
+    const words = longer.key.split(' ');
+    if (words.length < 2) continue;
+    for (let from = 0; from < words.length; from++) {
+      for (let to = from + 1; to <= words.length; to++) {
+        if (to - from === words.length) continue; // the phrase itself
+        const sub = words.slice(from, to).join(' ');
+        if (longer.pages > (widestContaining.get(sub) ?? 0)) widestContaining.set(sub, longer.pages);
+      }
+    }
   }
-  return keep;
+  return stats.filter((s) => (widestContaining.get(s.key) ?? 0) < s.pages * tolerance);
 }
 
 // ───────────────────────── heading clusters ("subtopics") ─────────────────────────

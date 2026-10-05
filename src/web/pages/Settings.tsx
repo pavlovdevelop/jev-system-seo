@@ -67,7 +67,7 @@ function Connections({ status }: { status: StatusResponse }): JSX.Element {
             <tr>
               <td><div class="cell-main">Достъп до приложението</div><div class="cell-sub">кой може да го отваря</div></td>
               <td><Conn tone={status.authRequired ? 'ok' : 'optional'}>{status.authRequired ? 'с парола' : 'без парола'}</Conn></td>
-              <td class="small muted">{status.authRequired ? 'Браузърът пита за парола (APP_PASSWORD).' : 'Достъпно само от този компютър. За друг адрес задай APP_PASSWORD.'}</td>
+              <td class="small muted">{status.authRequired ? 'Браузърът пита за парола (APP_PASSWORD).' : 'Подходящо само ако сървърът слуша само на този компютър (HOST=127.0.0.1). Иначе задай APP_PASSWORD.'}</td>
             </tr>
           </tbody>
         </table>

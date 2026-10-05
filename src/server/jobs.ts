@@ -26,6 +26,7 @@ export interface JobLogger {
 const MAX_BUFFERED_EVENTS = 300;
 const KEEP_FINISHED_MS = 60 * 60 * 1000;
 const MAX_QUEUED = 20;
+const MAX_FINISHED_KEPT = 100;
 
 export class JobManager {
   private readonly jobs = new Map<string, Job>();
@@ -120,6 +121,15 @@ export class JobManager {
     job.state = { ...job.state, status, error, reportId: status === 'done' ? job.reportId : null };
     for (const l of job.listeners) l({ type: 'state', payload: job.state });
     setTimeout(() => this.jobs.delete(job.state.id), KEEP_FINISHED_MS).unref();
+    this.forgetOldFinished();
+  }
+
+  /** The registry must not grow with the number of analyses ever started: only the latest finished ones are kept. */
+  private forgetOldFinished(): void {
+    const finished = [...this.jobs.values()].filter((j) => j.state.status === 'done' || j.state.status === 'error');
+    if (finished.length <= MAX_FINISHED_KEPT) return;
+    finished.sort((a, b) => a.state.createdAt.localeCompare(b.state.createdAt));
+    for (const job of finished.slice(0, finished.length - MAX_FINISHED_KEPT)) this.jobs.delete(job.state.id);
   }
 
   private async execute(job: Job): Promise<void> {

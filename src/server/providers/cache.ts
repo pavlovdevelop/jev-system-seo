@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import type { Market } from '../../shared/markets';
@@ -39,13 +39,48 @@ export class DiskCache {
     }
   }
 
+  /**
+   * Entries only expire when they are read again, so keys nobody asks for twice would stay forever. This deletes
+   * every file that has not been written for longer than the TTL. Returns how many files it removed.
+   */
+  async prune(now = Date.now()): Promise<number> {
+    if (!this.enabled) return 0;
+    let removed = 0;
+    let namespaces: string[];
+    try {
+      namespaces = await readdir(this.dir);
+    } catch {
+      return 0; // nothing cached yet
+    }
+    for (const ns of namespaces) {
+      let files: string[];
+      try {
+        files = await readdir(join(this.dir, ns));
+      } catch {
+        continue;
+      }
+      for (const name of files) {
+        const file = join(this.dir, ns, name);
+        try {
+          if (now - (await stat(file)).mtimeMs > this.defaultTtlMs) {
+            await rm(file, { force: true });
+            removed++;
+          }
+        } catch {
+          // a file that vanished or cannot be read is not our problem
+        }
+      }
+    }
+    return removed;
+  }
+
   async set(ns: string, key: string, value: unknown, ttlMs = this.defaultTtlMs): Promise<void> {
     if (!this.enabled || ttlMs <= 0) return;
     const file = this.file(ns, key);
     try {
-      await mkdir(dirname(file), { recursive: true });
+      await mkdir(dirname(file), { recursive: true, mode: 0o700 });
       const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
-      await writeFile(tmp, gzipSync(JSON.stringify({ key, expiresAt: Date.now() + ttlMs, value })));
+      await writeFile(tmp, gzipSync(JSON.stringify({ key, expiresAt: Date.now() + ttlMs, value })), { mode: 0o600 });
       await rename(tmp, file);
     } catch {
       // A cache that cannot write must never break an analysis.

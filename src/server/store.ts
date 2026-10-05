@@ -11,6 +11,7 @@ import {
   type SettingsPatch,
   type TrackedCompetitor,
 } from '../shared/schemas';
+import { ID_PATTERN } from '../shared/ids';
 import { domainOf } from './providers/serp/types';
 
 // File-based storage: one JSON file per report, a small index for fast listing, and a settings file.
@@ -29,12 +30,12 @@ export interface IndexEntry extends ReportSummary {
   digest: IndexDigest[];
 }
 
-export const ID_PATTERN = /^[rj]_[a-z0-9]{6,40}$/;
+export { ID_PATTERN };
 export const newId = (prefix: 'r' | 'j'): string => `${prefix}_${Date.now().toString(36)}${randomBytes(4).toString('hex')}`;
 
 async function writeJsonAtomic(file: string, value: unknown): Promise<void> {
   const tmp = `${file}.${process.pid}.${randomBytes(3).toString('hex')}.tmp`;
-  await writeFile(tmp, JSON.stringify(value), 'utf-8');
+  await writeFile(tmp, JSON.stringify(value), { encoding: 'utf-8', mode: 0o600 });
   await rename(tmp, file);
 }
 
@@ -93,7 +94,7 @@ export class Store {
   }
 
   async init(): Promise<void> {
-    await mkdir(this.reportsDir, { recursive: true });
+    await mkdir(this.reportsDir, { recursive: true, mode: 0o700 });
   }
 
   // ───────────── settings & competitor registry ─────────────
@@ -108,7 +109,7 @@ export class Store {
     return this.exclusive(async () => {
       const current = await this.getSettings();
       const next = SettingsSchema.parse({ ...current, ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) });
-      await mkdir(this.dir, { recursive: true });
+      await mkdir(this.dir, { recursive: true, mode: 0o700 });
       await writeJsonAtomic(this.settingsFile, next);
       return next;
     });
@@ -121,7 +122,7 @@ export class Store {
       if (current.competitors.some((c) => domainOf(`https://${c.domain}`) === normalized)) return current;
       const entry: TrackedCompetitor = { domain: normalized, note: note.trim().slice(0, 200), addedAt: new Date().toISOString() };
       const next = SettingsSchema.parse({ ...current, competitors: [...current.competitors, entry] });
-      await mkdir(this.dir, { recursive: true });
+      await mkdir(this.dir, { recursive: true, mode: 0o700 });
       await writeJsonAtomic(this.settingsFile, next);
       return next;
     });
@@ -141,7 +142,7 @@ export class Store {
 
   async saveReport(report: Report): Promise<void> {
     await this.exclusive(async () => {
-      await mkdir(this.reportsDir, { recursive: true });
+      await mkdir(this.reportsDir, { recursive: true, mode: 0o700 });
       await writeJsonAtomic(join(this.reportsDir, `${report.id}.json`), report);
       const index = await this.loadIndex();
       const next = [summarize(report), ...index.filter((e) => e.id !== report.id)];

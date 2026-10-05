@@ -20,6 +20,8 @@ export interface AppConfig {
   host: string;
   port: number;
   appPassword: string | null;
+  /** Extra host names the server answers to when it has no password (see the Host check in app.ts). */
+  allowedHosts: string[];
   dataDir: string;
   demo: boolean;
   jev: JevConfig | null;
@@ -38,6 +40,8 @@ export interface AppConfig {
     maxPagesPerRun: number;
     maxConcurrentJobs: number;
     maxCandidates: number;
+    /** Stored reports; new analyses are refused beyond this so the disk cannot fill up unnoticed. */
+    maxReports: number;
   };
   cacheTtlHours: number;
 }
@@ -48,6 +52,9 @@ export class ConfigError extends Error {
     this.name = 'ConfigError';
   }
 }
+
+/** A password reachable from the network must resist guessing: shorter ones are refused at startup. */
+export const MIN_PUBLIC_PASSWORD = 12;
 
 const DEFAULT_USER_AGENT = 'JevSeoRadar/0.1 (+https://github.com/pavlovdevelop/jev-system-seo)';
 
@@ -75,7 +82,11 @@ function int(
 }
 
 function isLoopbackHost(host: string): boolean {
-  return host === 'localhost' || host === '::1' || host === '[::1]' || /^127\./.test(host);
+  const h = host.trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (h === 'localhost' || h === '::1') return true;
+  // exactly 127.0.0.0/8: "127.example.com" is a public name, not a loopback address
+  const m = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  return m !== null && m.slice(1).every((part) => Number(part) <= 255);
 }
 
 /** Cleartext HTTP is only acceptable for loopback (local test doubles); API keys must never travel unencrypted. */
@@ -165,6 +176,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
   const host = clean(env.HOST) ?? '127.0.0.1';
   const port = int(problems, 'PORT', env.PORT, 8787, 1, 65535);
   const appPassword = clean(env.APP_PASSWORD) ?? null;
+  if (appPassword && !isLoopbackHost(host) && appPassword.length < MIN_PUBLIC_PASSWORD) {
+    problems.push(`APP_PASSWORD трябва да е поне ${MIN_PUBLIC_PASSWORD} знака, когато HOST (${host}) е достъпен от мрежата — иначе се налучква за минути`);
+  }
+  const allowedHosts = (clean(env.ALLOWED_HOSTS) ?? '')
+    .split(',')
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean);
+  for (const h of allowedHosts) {
+    if (!/^(?:[a-z0-9-]+(?:\.[a-z0-9-]+)*|\[[0-9a-f:]+\])$/.test(h)) problems.push(`ALLOWED_HOSTS: „${h}“ не е валидно име на хост (без порт и без схема)`);
+  }
 
   const dfsLogin = clean(env.DATAFORSEO_LOGIN);
   const dfsPassword = clean(env.DATAFORSEO_PASSWORD);
@@ -174,6 +195,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     host,
     port,
     appPassword,
+    allowedHosts,
     dataDir: resolve(clean(env.DATA_DIR) ?? './data'),
     demo: demoFlag,
     jev: resolveJevConfig(env, problems),
@@ -190,6 +212,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
       maxPagesPerRun: int(problems, 'MAX_PAGES_PER_RUN', env.MAX_PAGES_PER_RUN, 16, 1, 60),
       maxConcurrentJobs: int(problems, 'MAX_CONCURRENT_JOBS', env.MAX_CONCURRENT_JOBS, 2, 1, 10),
       maxCandidates: int(problems, 'MAX_CANDIDATES', env.MAX_CANDIDATES, 40, 0, 100),
+      maxReports: int(problems, 'MAX_REPORTS', env.MAX_REPORTS, 500, 1, 5000),
     },
     cacheTtlHours: int(problems, 'CACHE_TTL_HOURS', env.CACHE_TTL_HOURS, 24, 0, 24 * 30),
   };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isPathAllowed, parseRobots, RobotsChecker, rulesFor } from '../../src/server/crawl/robots';
+import { isPathAllowed, parseRobots, patternMatches, RobotsChecker, rulesFor } from '../../src/server/crawl/robots';
 
 const UA = 'JevSeoRadar/0.1 (+https://example.com)';
 const allowed = (txt: string, path: string, ua = UA) => isPathAllowed(rulesFor(parseRobots(txt), ua), path);
@@ -70,5 +70,65 @@ describe('RobotsChecker', () => {
     const blocked = await make({ status: 503, text: '' }).checker.check(new URL('https://a.example/x'));
     expect(blocked.allowed).toBe(false);
     expect(blocked.reason).toMatch(/503/);
+  });
+});
+
+// The reference semantics: what the old regular-expression implementation computed (fine for small inputs).
+function referenceMatches(pattern: string, path: string): boolean {
+  const anchored = pattern.endsWith('$');
+  const body = anchored ? pattern.slice(0, -1) : pattern;
+  const source = body
+    .split('*')
+    .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+    .join('.*');
+  return new RegExp(`^${source}${anchored ? '$' : ''}`).test(path);
+}
+
+describe('patternMatches', () => {
+  it('agrees with the regular-expression semantics on many random patterns and paths', () => {
+    let seed = 12345;
+    const rand = (n: number): number => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed % n;
+    };
+    const alphabet = ['a', 'b', '/', '*', '$', '.', '?'];
+    const make = (max: number): string => Array.from({ length: rand(max) }, () => alphabet[rand(alphabet.length)]).join('');
+    for (let i = 0; i < 20_000; i++) {
+      const pattern = make(9);
+      const path = make(12).replace(/[*$]/g, 'a');
+      expect(patternMatches(pattern, path), `${JSON.stringify(pattern)} vs ${JSON.stringify(path)}`).toBe(referenceMatches(pattern, path));
+    }
+  });
+
+  it('handles the documented examples', () => {
+    expect(patternMatches('/fish', '/fish.html')).toBe(true);
+    expect(patternMatches('/fish*', '/fish')).toBe(true);
+    expect(patternMatches('/*.php', '/folder/filename.php?x=1')).toBe(true);
+    expect(patternMatches('/*.php$', '/filename.php?x=1')).toBe(false);
+    expect(patternMatches('/*.php$', '/filename.php')).toBe(true);
+    expect(patternMatches('/fish$', '/fish/')).toBe(false);
+    expect(patternMatches('/a*a$', '/a')).toBe(false); // the two a's must not overlap
+  });
+
+  it('stays instant on the pattern that made the regular expression backtrack for minutes', () => {
+    const pattern = `/${'*a'.repeat(12)}*b`;
+    const path = `/${'a'.repeat(5_000)}`;
+    const t0 = performance.now();
+    expect(patternMatches(pattern, path)).toBe(false);
+    expect(performance.now() - t0).toBeLessThan(200);
+  });
+});
+
+describe('a hostile robots.txt', () => {
+  it('cannot make parsing or matching expensive: huge lines and rule floods are ignored', () => {
+    const lines = ['User-agent: *', `Disallow: /${'x'.repeat(5_000)}`];
+    for (let i = 0; i < 20_000; i++) lines.push(`Disallow: /*a*a*a*a*b${i}`);
+    lines.push('Allow: /public');
+    const t0 = performance.now();
+    const rules = rulesFor(parseRobots(lines.join('\n')), 'JevSeoRadar/0.1');
+    expect(rules.length).toBeLessThanOrEqual(5_000);
+    expect(rules.every((r) => r.pattern.length <= 1_024)).toBe(true);
+    isPathAllowed(rules, `/${'a'.repeat(2_000)}`);
+    expect(performance.now() - t0).toBeLessThan(1_500);
   });
 });

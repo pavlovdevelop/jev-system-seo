@@ -4,9 +4,10 @@ import { BlockList, isIP } from 'node:net';
 // SSRF protection for the crawler. The server fetches URLs that come from search results and from the
 // user; none of them may reach loopback, private networks, link-local ranges (cloud metadata at
 // 169.254.169.254!) or other internal addresses. Two layers:
-//   1. assertPublicUrl(): cheap structural checks before any network I/O.
-//   2. ssrfLookup(): a DNS `lookup` hook used by the HTTP agent, so the address that is actually
-//      connected to is validated at connect time (no TOCTOU / DNS-rebinding gap).
+//   1. assertPublicUrl(): structural checks before any network I/O. It must run for EVERY request, including each
+//      redirect hop and robots.txt: it is the only check for IP literals (Node never calls the DNS hook for them).
+//   2. ssrfLookup(): a DNS `lookup` hook used by the HTTP agent, so the address a host NAME resolves to is validated at
+//      connect time (no TOCTOU / DNS-rebinding gap).
 
 export class SsrfError extends Error {
   constructor(message: string) {
@@ -113,7 +114,8 @@ export function ssrfLookup(allowPrivateNetworks = false) {
       if (!allowPrivateNetworks) {
         const bad = list.find((a) => isBlockedAddress(a.address));
         if (bad) {
-          const e: NodeJS.ErrnoException = new SsrfError(`${hostname} сочи към вътрешен адрес (${bad.address})`);
+          // The resolved address stays out of the message: it would tell whoever can start an analysis what their DNS says inside.
+          const e: NodeJS.ErrnoException = new SsrfError('Хостът сочи към вътрешен адрес — отказан');
           e.code = 'ESSRF';
           return callback(e);
         }

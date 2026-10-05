@@ -1,4 +1,5 @@
-import { timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { isIP } from 'node:net';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { serveStatic } from '@hono/node-server/serve-static';
@@ -8,13 +9,16 @@ import { secureHeaders } from 'hono/secure-headers';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
 import { AnalyzeRequestSchema, DomainSchema, SettingsPatchSchema } from '../shared/schemas';
+import { isBlockedAddress } from './crawl/ssrf';
 import { attachment, opportunitiesCsv, reportMarkdown } from './export';
 import type { JobManager } from './jobs';
 import { fileSlug } from './nlp/bg';
 import { PipelineError } from './pipeline/analyze';
 import { DEMO_DEFAULTS, type Runtime } from './runtime';
 import { ID_PATTERN, type Store } from './store';
+import { hostAllowList, isAllowedHost } from './util/host';
 import { sleep } from './util/limit';
+import { FailureLimiter } from './util/throttle';
 
 export interface AppDeps {
   runtime: Runtime;
@@ -22,6 +26,8 @@ export interface AppDeps {
   jobs: JobManager;
   /** Directory with the built SPA (dist/web). When absent, only the API is served (dev mode uses Vite). */
   webRoot?: string;
+  /** Password-guessing defence; tests inject their own so they do not have to wait. */
+  login?: { limiter?: FailureLimiter; failureDelayMs?: number };
 }
 
 const CSRF_HEADER = 'x-requested-with';
@@ -30,10 +36,21 @@ const CSRF_VALUE = 'jev-seo-radar';
 const fail = (c: Context, status: 400 | 401 | 403 | 404 | 409 | 422 | 429 | 500 | 503, code: string, message: string) =>
   c.json({ error: { code, message } }, status);
 
-function safeEqual(a: string, b: string): boolean {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  return ab.length === bb.length && timingSafeEqual(ab, bb);
+/** Per-process key: comparing HMACs of equal length means neither the content nor the length of the password leaks through timing. */
+const hmacKey = randomBytes(32);
+const digest = (value: string): Buffer => createHmac('sha256', hmacKey).update(value).digest();
+
+/**
+ * Who is asking, for rate limiting. Behind a reverse proxy every request arrives from the proxy's private address,
+ * so then the client address the proxy appended (the last X-Forwarded-For entry) is used instead.
+ */
+function clientKey(c: Context): string {
+  const peer = ((c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)?.incoming?.socket?.remoteAddress ?? '').replace(/^::ffff:/, '');
+  if (peer === '' || (isIP(peer) !== 0 && isBlockedAddress(peer))) {
+    const forwarded = c.req.header('x-forwarded-for')?.split(',').map((x) => x.trim()).filter(Boolean).pop();
+    if (forwarded) return forwarded;
+  }
+  return peer || 'unknown';
 }
 
 export function createApp(deps: AppDeps): Hono {
@@ -62,18 +79,38 @@ export function createApp(deps: AppDeps): Hono {
     }),
   );
 
+  // DNS rebinding defence for instances without a password (see util/host.ts).
+  const allowedHosts = hostAllowList(config);
+  if (allowedHosts) {
+    app.use('*', async (c, next) =>
+      isAllowedHost(allowedHosts, c.req.header('host')) ? next() : c.text('Невалиден адрес (Host). Ако отваряш приложението през друго име, добави го в ALLOWED_HOSTS.', 421),
+    );
+  }
+
   // Optional shared password (HTTP Basic). The browser remembers it for the session.
   if (config.appPassword) {
-    const expected = config.appPassword;
+    const expected = digest(config.appPassword);
+    const limiter = deps.login?.limiter ?? new FailureLimiter(20, 60_000);
+    const failureDelayMs = deps.login?.failureDelayMs ?? 300;
+    const challenge = { 'WWW-Authenticate': 'Basic realm="Jev SEO Radar", charset="UTF-8"' };
     app.use('*', async (c, next) => {
       if (c.req.path === '/api/health') return next();
       const header = c.req.header('authorization') ?? '';
-      if (header.startsWith('Basic ')) {
-        const decoded = Buffer.from(header.slice(6), 'base64').toString('utf-8');
-        const password = decoded.slice(decoded.indexOf(':') + 1);
-        if (safeEqual(password, expected)) return next();
+      // No credentials yet (the browser's first request): just ask for them. Only a wrong guess counts as a failure.
+      if (!header.startsWith('Basic ')) return c.text('Необходима е парола.', 401, challenge);
+      const key = clientKey(c);
+      const wait = limiter.blockedFor(key);
+      if (wait > 0) return c.text(`Твърде много неуспешни опити за вход. Опитай пак след ${wait} с.`, 429, { 'Retry-After': String(wait) });
+      const decoded = Buffer.from(header.slice(6), 'base64').toString('utf-8');
+      const password = decoded.slice(decoded.indexOf(':') + 1);
+      if (timingSafeEqual(digest(password), expected)) {
+        limiter.reset(key);
+        return next();
       }
-      return c.text('Необходима е парола.', 401, { 'WWW-Authenticate': 'Basic realm="Jev SEO Radar", charset="UTF-8"' });
+      limiter.fail(key);
+      if (limiter.blockedFor(key) > 0) console.warn(`[radar] твърде много неуспешни опити за вход от ${key} — блокиран за около минута`);
+      if (failureDelayMs > 0) await sleep(failureDelayMs);
+      return c.text('Необходима е парола.', 401, challenge);
     });
   }
 
@@ -149,6 +186,9 @@ export function createApp(deps: AppDeps): Hono {
         deepPages: Math.min(parsed.data.options.deepPages, config.limits.maxPagesPerRun),
       },
     };
+    if ((await store.listReports()).length >= config.limits.maxReports) {
+      return fail(c, 409, 'limit', `Достигнат е лимитът от ${config.limits.maxReports} запазени отчета. Изтрий стари отчети и опитай пак.`);
+    }
     if (!config.demo && !config.jev) return fail(c, 503, 'jev_not_configured', 'Jev не е настроен. Добави JEV_API_KEY в .env и рестартирай сървъра.');
     if (!config.demo && !config.serp && request.manualUrls.length === 0) {
       return fail(c, 422, 'no_serp', 'Няма настроен SERP доставчик. Добави SERPER_API_KEY в .env или въведи URL адреси на конкуренти ръчно.');

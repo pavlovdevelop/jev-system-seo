@@ -2,11 +2,12 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createApp } from '../../src/server/app';
+import { createApp, type AppDeps } from '../../src/server/app';
 import { loadConfig } from '../../src/server/config';
 import { JobManager } from '../../src/server/jobs';
 import { Runtime } from '../../src/server/runtime';
 import { Store } from '../../src/server/store';
+import { FailureLimiter } from '../../src/server/util/throttle';
 import { ReportSchema } from '../../src/shared/schemas';
 
 const H = { 'x-requested-with': 'jev-seo-radar', 'content-type': 'application/json' };
@@ -21,14 +22,14 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-async function setup(env: Record<string, string> = { DEMO_MODE: '1' }, maxConcurrent = 2) {
+async function setup(env: Record<string, string> = { DEMO_MODE: '1' }, maxConcurrent = 2, extra: Partial<AppDeps> = {}) {
   const config = loadConfig({ DATA_DIR: dir, ...env }, []);
   const store = new Store(config.dataDir);
   await store.init();
   const runtime = new Runtime(config);
   const jobs = new JobManager({ store, runtime, maxConcurrent, logger: quiet });
   running = jobs;
-  const app = createApp({ runtime, store, jobs });
+  const app = createApp({ runtime, store, jobs, ...extra });
   const call = (path: string, init: RequestInit = {}) => app.request(path, init);
   const post = (path: string, body: unknown, headers: Record<string, string> = H) => call(path, { method: 'POST', headers, body: JSON.stringify(body) });
   return { app, call, post, store, jobs, config };
@@ -104,6 +105,89 @@ describe('status and security', () => {
     expect((await call('/api/nope')).status).toBe(404);
     for (const id of ['../../etc/passwd', '..%2F..%2Fetc%2Fpasswd', 'r_', 'x', 'r_UPPER']) expect((await call(`/api/reports/${id}`)).status).toBe(404);
     expect((await call('/api/reports/r_abcdef123456/export?format=json')).status).toBe(404);
+  });
+});
+
+describe('Host check (DNS rebinding) and password guessing', () => {
+  const asHost = (host: string) => ({ headers: { host } });
+
+  it('answers only to loopback names when there is no password', async () => {
+    const { call } = await setup();
+    for (const host of ['localhost:8787', 'LOCALHOST', '127.0.0.1:5173', '[::1]:8787']) expect((await call('/api/status', asHost(host))).status, host).toBe(200);
+    // a rebound attacker name, and look-alikes
+    for (const host of ['evil.example:8787', 'localhost.evil.example', '127.0.0.1.evil.example', 'evil.example', '[::1', '']) {
+      expect((await call('/api/status', asHost(host))).status, host).toBe(421);
+    }
+    // an HTTP request without any Host header cannot come from a browser
+    expect((await call('/api/status')).status).toBe(200);
+  });
+
+  it('refuses rebound requests to every route, not just the API, and cannot be used to start an analysis', async () => {
+    const { call, post } = await setup();
+    const evil = { host: 'evil.example:8787', origin: 'http://evil.example:8787' };
+    expect((await post('/api/analyses', { keyword: 'изработка на уебсайт' }, { ...H, ...evil })).status).toBe(421);
+    expect((await call('/api/reports', asHost('evil.example'))).status).toBe(421);
+    expect((await call('/', asHost('evil.example'))).status).toBe(421);
+  });
+
+  it('lets the operator add the names the app is really reached by', async () => {
+    const { call } = await setup({ DEMO_MODE: '1', ALLOWED_HOSTS: 'radar.local, Radar.Example' });
+    expect((await call('/api/status', asHost('radar.local:8080'))).status).toBe(200);
+    expect((await call('/api/status', asHost('radar.example'))).status).toBe(200);
+    expect((await call('/api/status', asHost('other.example'))).status).toBe(421);
+  });
+
+  it('does not restrict hosts when a password protects the instance', async () => {
+    const { call } = await setup({ DEMO_MODE: '1', APP_PASSWORD: 'a-long-enough-secret' });
+    expect((await call('/api/status', asHost('anything.example'))).status).toBe(401);
+  });
+
+  const basic = (pw: string) => ({ authorization: `Basic ${Buffer.from(`radar:${pw}`).toString('base64')}` });
+
+  it('blocks a client after too many wrong passwords, even for the right one, and releases it later', async () => {
+    let now = 1_000_000;
+    const limiter = new FailureLimiter(3, 60_000, 100, () => now);
+    const { call } = await setup({ DEMO_MODE: '1', APP_PASSWORD: 'correct horse battery' }, 2, { login: { limiter, failureDelayMs: 0 } });
+    for (let i = 0; i < 3; i++) expect((await call('/api/status', { headers: basic(`wrong-${i}`) })).status).toBe(401);
+    const blocked = await call('/api/status', { headers: basic('correct horse battery') });
+    expect(blocked.status).toBe(429);
+    expect(Number(blocked.headers.get('retry-after'))).toBeGreaterThan(0);
+    now += 61_000;
+    expect((await call('/api/status', { headers: basic('correct horse battery') })).status).toBe(200);
+  });
+
+  it('does not count requests without credentials (the browser first asks without any) as failures', async () => {
+    const limiter = new FailureLimiter(3, 60_000, 100);
+    const { call } = await setup({ DEMO_MODE: '1', APP_PASSWORD: 'correct horse battery' }, 2, { login: { limiter, failureDelayMs: 0 } });
+    for (let i = 0; i < 10; i++) expect((await call('/api/status')).status).toBe(401);
+    expect((await call('/api/status', { headers: basic('correct horse battery') })).status).toBe(200);
+  });
+
+  it('keeps counting separately per client behind a proxy (last X-Forwarded-For entry)', async () => {
+    const limiter = new FailureLimiter(2, 60_000, 100);
+    const { call } = await setup({ DEMO_MODE: '1', APP_PASSWORD: 'correct horse battery' }, 2, { login: { limiter, failureDelayMs: 0 } });
+    const from = (ip: string, pw: string) => ({ headers: { ...basic(pw), 'x-forwarded-for': `203.0.113.99, ${ip}` } });
+    for (let i = 0; i < 2; i++) expect((await call('/api/status', from('198.51.100.7', 'nope'))).status).toBe(401);
+    expect((await call('/api/status', from('198.51.100.7', 'correct horse battery'))).status).toBe(429);
+    // another client behind the same proxy is not affected, and a forged first entry does not help the attacker
+    expect((await call('/api/status', from('198.51.100.8', 'correct horse battery'))).status).toBe(200);
+  });
+});
+
+describe('report limit', () => {
+  it('refuses new analyses once the configured number of reports is stored, until some are deleted', async () => {
+    const { post, call } = await setup({ DEMO_MODE: '1', MAX_REPORTS: '2' });
+    const ids: string[] = [];
+    for (const keyword of ['изработка на уебсайт', 'изработка на уебсайт цена']) {
+      const { job } = (await (await post('/api/analyses', { keyword })).json()) as { job: { id: string } };
+      const done = await finished(call, job.id);
+      ids.push(done.reportId as string);
+    }
+    const refused = await post('/api/analyses', { keyword: 'уеб дизайн' });
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: { code: string } }).error.code).toBe('limit');
+    expect((await call(`/api/reports/${ids[0]}`, { method: 'DELETE', headers: H })).status).toBe(200);
+    expect((await post('/api/analyses', { keyword: 'уеб дизайн' })).status).toBe(202);
   });
 });
 

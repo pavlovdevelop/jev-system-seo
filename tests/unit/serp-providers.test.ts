@@ -279,3 +279,15 @@ describe('caching and run budget', () => {
     expect(calls).toBe(4); // ok once, bad twice (not cached), robots once
   });
 });
+
+describe('requests to the SERP vendors', () => {
+  it('never follow redirects, so the API key header cannot be forwarded to another host', async () => {
+    const seen: RequestInit[] = [];
+    const fetchImpl = async (_url: string, init?: RequestInit): Promise<Response> => {
+      seen.push(init ?? {});
+      return new Response(JSON.stringify({ organic: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    };
+    await new SerperProvider('key', fetchImpl).search({ keyword: 'тест', market: MARKETS.bg, depth: 10 });
+    expect(seen[0]?.redirect).toBe('error');
+  });
+});

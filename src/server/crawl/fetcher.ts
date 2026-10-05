@@ -26,6 +26,8 @@ export interface FetcherOptions {
   /** Preferred languages sent as Accept-Language, e.g. "bg,en;q=0.8". */
   acceptLanguage?: string;
   maxRedirects?: number;
+  /** Test seam: replaces the network transport (the production default is undici's fetch through the SSRF-safe agent). */
+  fetchImpl?: typeof undiciFetch;
 }
 
 const failure = (status: FetchInfo['status'], error: string, extra: Partial<FetchedPage> = {}): FetchedPage => ({
@@ -90,12 +92,17 @@ export function decodeHtml(bytes: Uint8Array, contentType: string | null): strin
   }
 }
 
+/** RFC 9309 asks crawlers to follow at least five consecutive redirects for robots.txt. */
+const ROBOTS_MAX_REDIRECTS = 5;
+
 export class SafeFetcher implements PageFetcher {
   private readonly agent: Agent;
   private readonly robots: RobotsChecker;
   private readonly maxRedirects: number;
+  private readonly doFetch: typeof undiciFetch;
 
   constructor(private readonly options: FetcherOptions) {
+    this.doFetch = options.fetchImpl ?? undiciFetch;
     this.agent = new Agent({
       connect: { lookup: ssrfLookup(options.allowPrivateNetworks ?? false) as never, timeout: Math.min(options.timeoutMs, 10_000) },
       keepAliveTimeout: 5_000,
@@ -127,7 +134,7 @@ export class SafeFetcher implements PageFetcher {
       const started = performance.now();
       let response;
       try {
-        response = await undiciFetch(url, {
+        response = await this.doFetch(url, {
           dispatcher: this.agent,
           redirect: 'manual',
           signal,
@@ -184,21 +191,39 @@ export class SafeFetcher implements PageFetcher {
     return failure('error', `Твърде много пренасочвания (над ${this.maxRedirects})`);
   }
 
+  /**
+   * robots.txt is fetched with the same rules as a page: redirects are followed by hand and every hop goes through
+   * assertPublicUrl, otherwise a hostile site could answer /robots.txt with "302 → http://169.254.169.254/…" and make
+   * this server send requests to internal addresses.
+   */
   private async fetchRobotsTxt(robotsUrl: string): Promise<RobotsFetchResult | null> {
+    const allowPrivateNetworks = this.options.allowPrivateNetworks ?? false;
+    const signal = AbortSignal.timeout(Math.min(this.options.timeoutMs, 6_000));
     try {
-      const url = assertPublicUrl(robotsUrl, { allowPrivateNetworks: this.options.allowPrivateNetworks ?? false });
-      const response = await undiciFetch(url, {
-        dispatcher: this.agent,
-        redirect: 'follow',
-        signal: AbortSignal.timeout(Math.min(this.options.timeoutMs, 6_000)),
-        headers: { 'user-agent': this.options.userAgent, accept: 'text/plain,*/*;q=0.1' },
-      });
-      if (response.status >= 400) {
-        await response.body?.cancel().catch(() => undefined);
-        return { status: response.status, text: '' };
+      let current = robotsUrl;
+      for (let hop = 0; hop <= ROBOTS_MAX_REDIRECTS; hop++) {
+        const url = assertPublicUrl(current, { allowPrivateNetworks });
+        const response = await this.doFetch(url, {
+          dispatcher: this.agent,
+          redirect: 'manual',
+          signal,
+          headers: { 'user-agent': this.options.userAgent, accept: 'text/plain,*/*;q=0.1' },
+        });
+        if (response.status >= 300 && response.status < 400) {
+          const location = response.headers.get('location');
+          await response.body?.cancel().catch(() => undefined);
+          if (!location) return null;
+          current = new URL(location, url).toString();
+          continue;
+        }
+        if (response.status >= 400) {
+          await response.body?.cancel().catch(() => undefined);
+          return { status: response.status, text: '' };
+        }
+        const { bytes } = await readCapped(response.body as ReadableStream<Uint8Array> | null, 512 * 1024);
+        return { status: response.status, text: new TextDecoder('utf-8').decode(bytes) };
       }
-      const { bytes } = await readCapped(response.body as ReadableStream<Uint8Array> | null, 512 * 1024);
-      return { status: response.status, text: new TextDecoder('utf-8').decode(bytes) };
+      return null; // redirect chain too long: cannot tell, like an unreachable file
     } catch {
       return null;
     }

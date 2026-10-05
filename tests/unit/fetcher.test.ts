@@ -179,3 +179,66 @@ describe('charset helpers', () => {
     expect(decodeHtml(new TextEncoder().encode('Здравей'), 'text/html; charset=bogus-9000')).toBe('Здравей');
   });
 });
+
+describe('robots.txt redirects (SSRF)', () => {
+  const html = '<html><body>ok</body></html>';
+  /** A transport that answers from a table and records every URL it was asked for. */
+  function transport(routes: Record<string, () => Response>) {
+    const requested: string[] = [];
+    const fetchImpl = (async (input: string | URL) => {
+      const url = String(input);
+      requested.push(url);
+      const route = routes[url];
+      return route ? route() : new Response('not found', { status: 404 });
+    }) as never;
+    return { requested, fetchImpl };
+  }
+  const redirect = (to: string) => () => new Response(null, { status: 302, headers: { location: to } });
+  const page = () => new Response(html, { status: 200, headers: { 'content-type': 'text/html' } });
+  const options = { userAgent: 'JevSeoRadar/0.1', timeoutMs: 5_000, maxBytes: 100_000 };
+
+  it.each([
+    ['cloud metadata', 'http://169.254.169.254/latest/meta-data/'],
+    ['loopback', 'http://127.0.0.1:8080/admin'],
+    ['a private network', 'http://10.0.0.5/robots.txt'],
+    ['IPv4-mapped IPv6', 'http://[::ffff:7f00:1]/robots.txt'],
+    ['a port that is not allowed', 'https://internal.example:6379/robots.txt'],
+    ['an internal name', 'http://service.internal/robots.txt'],
+  ])('does not follow a robots.txt redirect to %s', async (_label, target) => {
+    const { requested, fetchImpl } = transport({
+      'https://evil.example/robots.txt': redirect(target),
+      'https://evil.example/page': page,
+    });
+    const fetcher = new SafeFetcher({ ...options, fetchImpl });
+    const result = await fetcher.fetchPage('https://evil.example/page');
+    // the redirect target was never requested; robots.txt counts as unreachable, so the page itself is fetched
+    expect(requested.filter((u) => u !== 'https://evil.example/robots.txt' && u !== 'https://evil.example/page')).toEqual([]);
+    expect(result.status).toBe('ok');
+    await fetcher.close();
+  });
+
+  it('still follows an ordinary redirect to another public host, and applies the rules it finds there', async () => {
+    const { requested, fetchImpl } = transport({
+      'https://example.com/robots.txt': redirect('https://www.example.com/robots.txt'),
+      'https://www.example.com/robots.txt': () => new Response('User-agent: *\nDisallow: /private', { status: 200 }),
+      'https://example.com/private/x': page,
+      'https://example.com/public': page,
+    });
+    const fetcher = new SafeFetcher({ ...options, fetchImpl });
+    expect((await fetcher.fetchPage('https://example.com/private/x')).status).toBe('blocked_robots');
+    expect((await fetcher.fetchPage('https://example.com/public')).status).toBe('ok');
+    expect(requested).toContain('https://www.example.com/robots.txt');
+    await fetcher.close();
+  });
+
+  it('gives up on a redirect loop instead of following it forever', async () => {
+    const { requested, fetchImpl } = transport({
+      'https://loop.example/robots.txt': redirect('https://loop.example/robots.txt'),
+      'https://loop.example/page': page,
+    });
+    const fetcher = new SafeFetcher({ ...options, fetchImpl });
+    expect((await fetcher.fetchPage('https://loop.example/page')).status).toBe('ok');
+    expect(requested.filter((u) => u.endsWith('/robots.txt')).length).toBeLessThanOrEqual(6);
+    await fetcher.close();
+  });
+});
