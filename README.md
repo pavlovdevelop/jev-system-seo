@@ -129,3 +129,17 @@ npm run build        # dist/web (интерфейс) и dist/server.mjs
 docker build -t jev-seo-radar .
 docker run --rm -p 8787:8787 --env-file .env -e APP_PASSWORD=избери_парола -v radar-data:/app/data jev-seo-radar
 ```
+
+## Публикуване в Render
+
+В хранилището има `render.yaml` (Render Blueprint), който описва услугата. Ключовете се въвеждат само в панела на Render — не в git и не в чат.
+
+1. В [Render](https://dashboard.render.com): **New +** → **Blueprint** → свържи GitHub и избери хранилището `jev-system-seo` (Render ще поиска достъп до него).
+2. Render чете `render.yaml` и пита за стойностите на **`JEV_API_KEY`** и **`SERPER_API_KEY`**. Постави ги там. `APP_PASSWORD` се генерира сам.
+3. **Apply**. Първото изграждане отнема няколко минути.
+4. Отвори адреса на услугата (`https://jev-seo-radar-….onrender.com`). Браузърът пита за потребител и парола: потребителското име е без значение, паролата е `APP_PASSWORD` от раздела **Environment** на услугата.
+5. В **Настройки** на приложението провери, че Jev и „Google данни“ са свързани.
+
+Ключ се сменя в **Environment** на услугата; Render презарежда сам.
+
+**Безплатният план има временна файлова система.** Отчетите, настройките и кешът се губят, когато услугата заспи (след 15 минути без заявки), се рестартира или се обнови. След анализ свали отчета (CSV, Markdown или JSON). За редовна работа смени `plan` в `render.yaml` на `0.5c-512mb` (Starter, около $7 на месец), разкоментирай блока `disk` (1 GB е достатъчен) и данните се пазят.
