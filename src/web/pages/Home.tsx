@@ -146,7 +146,7 @@ function History({ rows, onDelete }: { rows: ReportSummary[]; onDelete: (r: Repo
                   <td class="num">{int(r.quickWins)}</td>
                   <td class="num">{int(r.opportunities)}</td>
                   <td><Difficulty value={r.difficulty} /></td>
-                  <td class="trunc">{r.topDomain ?? '—'}</td>
+                  <td><div class="trunc">{r.topDomain ?? '—'}</div></td>
                   <td class="num nowrap">
                     <a class="btn btn-sm" href={`#/report/${encodeURIComponent(r.id)}`}>Отвори</a>
                     <button type="button" class="icon-btn" aria-label={`Изтрий отчета за ${r.keyword}`} onClick={() => onDelete(r)}>
@@ -213,16 +213,17 @@ export function HomePage({ status }: { status: StatusResponse }): JSX.Element {
   const estimate = useMemo(
     () =>
       estimateRun({
-        deepPages: Math.min(form.deepPages, maxDeep),
+        // without a SERP provider the pages are exactly the addresses typed in
+        deepPages: manualMode ? parsedManual.ok.length : Math.min(form.deepPages, maxDeep),
         expandKeywords: form.expandKeywords && !manualMode,
         maxCandidates: Math.min(form.maxCandidates, maxCandidates),
         serpDepth: form.serpDepth,
         hasOwnUrl: form.ownUrl.trim() !== '',
         manualMode,
-        extraCompetitors: parsedCompetitors.ok.length + trackedCount,
+        extraCompetitors: manualMode ? 0 : parsedCompetitors.ok.length + trackedCount,
         pageCap: maxDeep,
       }),
-    [form, manualMode, maxDeep, maxCandidates, parsedCompetitors.ok.length, trackedCount],
+    [form, manualMode, maxDeep, maxCandidates, parsedCompetitors.ok.length, parsedManual.ok.length, trackedCount],
   );
 
   const submit = async (e: Event): Promise<void> => {
@@ -361,7 +362,7 @@ export function HomePage({ status }: { status: StatusResponse }): JSX.Element {
               <div class="grid grid-2">
                 <div class="field">
                   <label class="label" for="f-deep">Страници за подробен анализ</label>
-                  <select id="f-deep" class="select" value={String(form.deepPages)} onChange={(e) => set('deepPages', Number(e.currentTarget.value))}>
+                  <select id="f-deep" class="select" value={String(form.deepPages)} onChange={(e) => set('deepPages', Number(e.currentTarget.value))} disabled={manualMode}>
                     {deepOptions.map((n) => (
                       <option key={n} value={n}>{n} първи резултата</option>
                     ))}

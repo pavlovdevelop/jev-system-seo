@@ -47,7 +47,7 @@ export function RunPage({ jobId }: { jobId: string }): JSX.Element {
             if (poll) clearInterval(poll);
           }
         });
-      }, 2000);
+      }, 3000);
     };
 
     // The first read tells us immediately whether the job exists at all.
@@ -57,10 +57,10 @@ export function RunPage({ jobId }: { jobId: string }): JSX.Element {
       source = new EventSource(`/api/jobs/${encodeURIComponent(jobId)}/events`);
       source.addEventListener('progress', (e) => setLast(JSON.parse((e as MessageEvent<string>).data) as ProgressEvent));
       source.addEventListener('state', (e) => apply(JSON.parse((e as MessageEvent<string>).data) as JobState));
-      source.onerror = () => {
-        // EventSource retries by itself; if the stream is gone for good, fall back to polling.
-        if (source?.readyState === EventSource.CLOSED) startPolling();
-      };
+      // EventSource retries silently after a network error and never gives up, so a stream that a proxy keeps
+      // cutting would freeze the page. A slow poll next to it costs one tiny request every few seconds and always converges.
+      source.onerror = () => startPolling();
+      startPolling();
     }, (e: unknown) => {
       setProblem(e instanceof ApiError && e.status === 404 ? 'Задачата не е намерена — сървърът може да е бил рестартиран. Пусни анализа отново.' : e instanceof Error ? e.message : 'Грешка при връзката.');
     });
