@@ -12,8 +12,9 @@ import { containsKeyword, coverage, looksLikeQuestion, slugMatchesKeyword, start
 
 const MAX_FULL_TEXT = 60_000;
 
-// A competitor's page is untrusted input and this runs on the thread that also serves the web UI. Every step below is
-// linear in the size of the page, and these limits keep that size (and the shape of the tree) bounded.
+// A competitor's page is untrusted input. The production server runs this in a worker thread with a hard deadline
+// (extract-pool.ts); in tests and `npm run dev` it runs on the thread that also serves the web UI. Either way every step
+// below is linear in the size of the page, and these limits keep that size (and the shape of the tree) bounded.
 /** Markup past this many characters is ignored (CRAWL_MAX_BYTES already caps what is downloaded). */
 const MAX_HTML_CHARS = 1_500_000;
 /** Elements nested deeper than this are flattened into their parent: real pages stay far below, browsers cap near 512. */
@@ -34,7 +35,7 @@ const MAX_SCHEMA_TYPE = 100;
 const MAX_SCAN_TEXT = 400_000;
 /** How many elements of one kind are examined (links, buttons, forms, articles, schema blocks). */
 const MAX_ELEMENTS = 5_000;
-/** One extraction may not hold the thread longer than this; a page that needs more is reported as not analysable. */
+/** One extraction may not hold its thread longer than this (checked between steps); a page that needs more is reported as not analysable. */
 const TIME_BUDGET_MS = 4_000;
 
 export class ExtractError extends Error {

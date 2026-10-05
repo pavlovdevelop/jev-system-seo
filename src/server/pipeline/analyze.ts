@@ -20,6 +20,7 @@ import { judgeKeyword, judgePage, judgeShallowResult, type JudgmentStatus } from
 import { rankOpportunities, scoreOpportunity } from '../analysis/opportunities';
 import { compositeScores, median, percentile } from '../analysis/scoring';
 import { pageSignals, type PeerStats } from '../analysis/signals';
+import type { PageExtractor } from '../crawl/extract-pool';
 import type { PageFetcher } from '../crawl/fetcher';
 import { JevError, type Jev } from '../jev/client';
 import type { ExtractedPage, PageContext } from '../jev/questions';
@@ -37,6 +38,8 @@ export interface PipelineDeps {
   serp: SerpProvider | null;
   volume: VolumeProvider | null;
   fetcher: PageFetcher;
+  /** Reads the downloaded pages. Omitted = in this thread (tests and the demo); the live server brings a worker thread. */
+  extractor?: PageExtractor;
   meter: Meter;
   limits: { maxPagesPerRun: number; maxCandidates: number };
   info: { mode: 'live' | 'demo'; serp: string; volume: string | null; jev: { model: string; endpoint: string } };
@@ -163,6 +166,7 @@ async function run(
   const crawled = await crawlTargets(targets, {
     keyword,
     fetcher: deps.fetcher,
+    ...(deps.extractor ? { extractor: deps.extractor } : {}),
     meter: deps.meter,
     now,
     ...(signal ? { signal } : {}),

@@ -63,6 +63,10 @@ async function main(): Promise<void> {
     console.log(line(status.serp.configured, config.demo ? 'SERP: демо' : status.serp.configured ? `SERP: ${status.serp.provider}` : 'SERP: няма доставчик — ще работи само ръчен режим (URL адреси). Добави SERPER_API_KEY за автоматично търсене.'));
     console.log(line(status.volume.configured, config.demo ? 'Търсения/мес: демо' : status.volume.configured ? 'Търсения/мес: DataForSEO' : 'Търсения/мес: няма източник (по желание: DataForSEO)'));
     console.log(line(config.appPassword !== null, config.appPassword ? 'Достъп: защитен с парола' : isLoopbackHost(config.host) ? 'Достъп: без парола (само от този компютър)' : 'Достъп: БЕЗ ПАРОЛА, а адресът е достъпен от мрежата'));
+    if (!config.demo) {
+      if (runtime.extractor.mode === 'worker') console.log(line(true, 'Разбор на страници: в отделна нишка със срок'));
+      else console.log('  ! Разбор на страници: в основната нишка (няма build на работната нишка — нормално при „npm run dev“).');
+    }
     if (!existsSync(webRoot)) console.log('  ! Интерфейсът не е build-нат. За разработка ползвай „npm run dev“ (http://localhost:5173), за продукция „npm run build“.');
     console.log('');
   });

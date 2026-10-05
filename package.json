@@ -14,7 +14,7 @@
     "demo": "tsx src/server/index.ts --demo",
     "build": "npm run build:web && npm run build:server",
     "build:web": "vite build",
-    "build:server": "esbuild src/server/index.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dist/server.mjs",
+    "build:server": "tsx scripts/build-server.ts",
     "start": "node dist/server.mjs",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.web.json --noEmit",
     "test": "vitest run",

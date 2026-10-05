@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import type { StatusResponse } from '../shared/schemas';
 import { describeJev, type AppConfig } from './config';
+import { createExtractor, type PageExtractor } from './crawl/extract-pool';
 import { SafeFetcher, type PageFetcher } from './crawl/fetcher';
 import { DEMO_BUSINESS, DEMO_KEYWORD, DEMO_OWN_DOMAIN, createDemoWorld } from './demo/world';
 import { Jev, createSdkTransport } from './jev/client';
@@ -26,6 +27,7 @@ export interface RunHandle {
 /** Builds the per-run dependency graph (fresh Jev client, meter and fetcher, so usage numbers are exact). */
 export class Runtime {
   private readonly cache: DiskCache;
+  private extractorInstance: PageExtractor | null = null;
 
   constructor(readonly config: AppConfig) {
     this.cache = new DiskCache(join(config.dataDir, 'cache'), config.cacheTtlHours * 3_600_000);
@@ -47,7 +49,12 @@ export class Runtime {
     };
   }
 
-  /** Deletes cache files older than the TTL (called at startup and now and then). */
+  /** One page extractor — and so at most one worker thread — serves every analysis. It starts its thread on first use. */
+  get extractor(): PageExtractor {
+    return (this.extractorInstance ??= createExtractor());
+  }
+
+  /** Deletes the cache files whose time is up (called at startup and now and then). */
   pruneCache(): Promise<number> {
     return this.cache.prune();
   }
@@ -111,6 +118,7 @@ export class Runtime {
         serp: serpRaw ? new CachedSerpProvider(serpRaw, this.cache, meter) : null,
         volume: volumeRaw ? new CachedVolumeProvider(volumeRaw, this.cache, meter) : null,
         fetcher: cachedFetcher,
+        extractor: this.extractor,
         meter,
         limits: { maxPagesPerRun: config.limits.maxPagesPerRun, maxCandidates: config.limits.maxCandidates },
         info: {

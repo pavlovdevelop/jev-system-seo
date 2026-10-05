@@ -1,5 +1,5 @@
 import type { FetchInfo } from '../../shared/schemas';
-import { extractPage } from '../crawl/extract';
+import { InProcessExtractor, type PageExtractor } from '../crawl/extract-pool';
 import type { FetchedPage, PageFetcher } from '../crawl/fetcher';
 import type { ExtractedPage } from '../jev/questions';
 import type { Meter } from '../util/meter';
@@ -18,11 +18,14 @@ export function toFetchInfo(p: FetchedPage): FetchInfo {
   return { status: p.status, httpStatus: p.httpStatus, error: p.error, finalUrl: p.finalUrl, ttfbMs: p.ttfbMs, bytes: p.bytes, fromCache: p.fromCache };
 }
 
+/** Used when the caller does not bring its own extractor (tests, demo). */
+const inProcess = new InProcessExtractor();
+
 const skipped = (error: string): FetchInfo => ({ status: 'skipped', httpStatus: null, error, finalUrl: null, ttfbMs: null, bytes: null, fromCache: false });
 
 export async function crawlTargets(
   targets: readonly Target[],
-  options: { keyword: string; fetcher: PageFetcher; meter: Meter; now: Date; signal?: AbortSignal; onProgress?: (done: number, total: number) => void },
+  options: { keyword: string; fetcher: PageFetcher; extractor?: PageExtractor; meter: Meter; now: Date; signal?: AbortSignal; onProgress?: (done: number, total: number) => void },
 ): Promise<Crawled[]> {
   let done = 0;
   return mapLimit(targets, 4, async (target): Promise<Crawled> => {
@@ -41,7 +44,7 @@ export async function crawlTargets(
       let fetchInfo = toFetchInfo(fetched);
       if (fetched.status === 'ok' && fetched.html) {
         try {
-          extracted = extractPage(fetched.html, { url, keyword: options.keyword, now: options.now });
+          extracted = await (options.extractor ?? inProcess).extract(fetched.html, { url, keyword: options.keyword, now: options.now });
         } catch (err) {
           fetchInfo = { ...fetchInfo, status: 'error', error: `Грешка при разбор на HTML: ${err instanceof Error ? err.message.slice(0, 120) : 'неизвестна'}` };
         }

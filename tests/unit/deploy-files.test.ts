@@ -21,6 +21,21 @@ describe('Dockerfile', () => {
   });
 });
 
+describe('the server bundle', () => {
+  it('is built together with its page-extraction worker, which the image carries to the place the server looks', () => {
+    const scripts = (JSON.parse(read('package.json')) as { scripts: Record<string, string> }).scripts;
+    expect(scripts['build:server']).toBe('tsx scripts/build-server.ts');
+    expect(scripts.build).toContain('build:server');
+    expect(scripts.start).toBe('node dist/server.mjs');
+    const build = read('scripts/build-server.ts');
+    expect(build).toContain("server: 'src/server/index.ts'");
+    expect(build).toContain("'extract-worker': 'src/server/crawl/extract-worker.ts'");
+    expect(read('src/server/crawl/extract-pool.ts')).toContain("new URL('./extract-worker.mjs', import.meta.url)");
+    expect(dockerfile).toContain('COPY --from=build /app/dist ./dist'); // the whole folder, so the worker travels with the server
+    expect(dockerfile).toContain('CMD ["node", "dist/server.mjs"]');
+  });
+});
+
 describe('render.yaml', () => {
   it('health-checks a route the server really has, and that route is exempt from the password', () => {
     const path = render.match(/healthCheckPath: (\S+)/)?.[1];
