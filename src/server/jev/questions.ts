@@ -160,13 +160,18 @@ export interface PageContext {
   page: ExtractedPage | null;
 }
 
+/** A URL as Jev needs it (where the page lives), not as a hostile redirect could make it: no query or fragment, clipped. */
+export function urlForJev(url: string): string {
+  return clip(url.split(/[?#]/)[0], 200);
+}
+
 export function identityState(ctx: PageContext): EntryType {
   const m = ctx.page?.metrics;
   return {
     search_query: ctx.keyword,
     market: MARKETS[ctx.market].description,
     page: {
-      url: ctx.url,
+      url: urlForJev(ctx.url),
       domain: ctx.domain,
       title: clip(m?.title || ctx.serpTitle, 200),
       meta_description: clip(m?.metaDescription || ctx.serpSnippet, 300),

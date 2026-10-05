@@ -1,10 +1,12 @@
-import { mkdtemp, readFile, rm, stat, utimes } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { gzipSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { JobManager } from '../../src/server/jobs';
 import { DiskCache } from '../../src/server/providers/cache';
 import { Store } from '../../src/server/store';
+import { sha1Hex } from '../../src/server/util/hash';
 
 let dir: string;
 beforeEach(async () => {
@@ -26,19 +28,58 @@ describe('DiskCache', () => {
     expect(await mode(join(dir, 'cache', 'serp', (await files)[0] as string))).toBe(0o600);
   });
 
-  it('prune deletes what has not been written for longer than the TTL and keeps the rest', async () => {
+  it('stamps every file with its own expiry, so prune can tell without opening it', async () => {
     const cache = new DiskCache(join(dir, 'cache'), 3_600_000);
-    await cache.set('serp', 'old', { a: 1 });
-    await cache.set('serp', 'fresh', { a: 2 });
-    const { readdir } = await import('node:fs/promises');
-    const [first] = await readdir(join(dir, 'cache', 'serp'));
-    const longAgo = new Date(Date.now() - 2 * 3_600_000);
-    await utimes(join(dir, 'cache', 'serp', first as string), longAgo, longAgo);
-    expect(await cache.prune()).toBe(1);
-    expect(await readdir(join(dir, 'cache', 'serp'))).toHaveLength(1);
-    // and an empty or disabled cache is simply a no-op
+    const before = Date.now();
+    await cache.set('serp', 'a', { a: 1 });
+    await cache.set('volume', 'b', { b: 2 }, 7 * 24 * 3_600_000);
+    const mtimeOf = async (ns: string) => (await stat(join(dir, 'cache', ns, (await readdir(join(dir, 'cache', ns)))[0] as string))).mtimeMs;
+    expect(Math.abs((await mtimeOf('serp')) - (before + 3_600_000))).toBeLessThan(5_000);
+    expect(Math.abs((await mtimeOf('volume')) - (before + 7 * 24 * 3_600_000))).toBeLessThan(5_000);
+    expect(await cache.get('serp', 'a')).toEqual({ a: 1 });
+  });
+
+  it('prune judges every entry by its own TTL, not by the age of its file', async () => {
+    const cache = new DiskCache(join(dir, 'cache'), 3_600_000);
+    await cache.set('serp', 'day', { a: 1 }); // lives one hour in this test
+    await cache.set('volume', 'week', { b: 2 }, 7 * 24 * 3_600_000);
+    expect(await cache.prune()).toBe(0); // nothing has expired yet
+    expect(await cache.prune(Date.now() + 2 * 3_600_000)).toBe(1); // two hours on: only the short-lived entry is gone
+    expect(await readdir(join(dir, 'cache', 'serp'))).toHaveLength(0);
+    expect(await readdir(join(dir, 'cache', 'volume'))).toHaveLength(1);
+    expect(await cache.prune(Date.now() + 8 * 24 * 3_600_000)).toBe(1);
+    expect(await readdir(join(dir, 'cache', 'volume'))).toHaveLength(0);
+  });
+
+  it('prune handles files an older version wrote (modification time = write time) and unreadable ones', async () => {
+    const root = join(dir, 'cache');
+    await mkdir(join(root, 'serp'), { recursive: true });
+    const legacy = async (key: string, expiresAt: number, mtime: number): Promise<string> => {
+      const file = join(root, 'serp', `${sha1Hex(key)}.json.gz`);
+      await writeFile(file, gzipSync(JSON.stringify({ key, expiresAt, value: { key } })));
+      await utimes(file, new Date(mtime), new Date(mtime));
+      return file;
+    };
+    const now = Date.now();
+    const stillValid = await legacy('valid', now + 3_600_000, now - 30 * 60_000);
+    await legacy('expired', now - 60_000, now - 2 * 3_600_000);
+    const garbage = join(root, 'serp', 'garbage.json.gz');
+    await writeFile(garbage, 'not gzip at all');
+    await utimes(garbage, new Date(now - 1000), new Date(now - 1000));
+
+    expect(await new DiskCache(root, 3_600_000).prune(now)).toBe(2); // the expired one and the unreadable one
+    expect(await readdir(join(root, 'serp'))).toEqual([`${sha1Hex('valid')}.json.gz`]);
+    // the survivor now carries its expiry, so the next prune does not have to open it
+    expect(Math.abs((await stat(stillValid)).mtimeMs - (now + 3_600_000))).toBeLessThan(5_000);
+    expect(await new DiskCache(root, 3_600_000).get('serp', 'valid')).toEqual({ key: 'valid' });
+  });
+
+  it('prune is a no-op for an empty or disabled cache', async () => {
     expect(await new DiskCache(join(dir, 'nothing-here'), 3_600_000).prune()).toBe(0);
-    expect(await new DiskCache(join(dir, 'cache'), 0).prune()).toBe(0);
+    const cache = new DiskCache(join(dir, 'cache'), 3_600_000);
+    await cache.set('serp', 'k', { a: 1 });
+    expect(await new DiskCache(join(dir, 'cache'), 0).prune(Date.now() + 10 * 3_600_000)).toBe(0);
+    expect(await readdir(join(dir, 'cache', 'serp'))).toHaveLength(1);
   });
 });
 

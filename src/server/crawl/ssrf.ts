@@ -33,30 +33,64 @@ const v4: Array<[string, number]> = [
   ['203.0.113.0', 24], // documentation
   ['224.0.0.0', 4], // multicast
   ['240.0.0.0', 4], // reserved + broadcast
+  ['168.63.129.16', 32], // Azure WireServer / host agent: a "public" address that is really the platform's control plane
 ];
 for (const [net, prefix] of v4) blocked.addSubnet(net, prefix, 'ipv4');
 const v6: Array<[string, number]> = [
-  ['::', 128], // unspecified
-  ['::1', 128], // loopback
-  ['64:ff9b::', 96], // NAT64 (can embed private IPv4)
+  ['::', 96], // unspecified, loopback and the deprecated IPv4-compatible range (::a.b.c.d)
+  ['64:ff9b:1::', 48], // local-use NAT64
   ['100::', 64], // discard-only
+  ['2001::', 32], // Teredo
+  ['2001:2::', 48], // benchmarking
   ['2001:db8::', 32], // documentation
+  ['3fff::', 20], // documentation
   ['fc00::', 7], // unique local
   ['fe80::', 10], // link-local
+  ['fec0::', 10], // site-local (deprecated, still routed inside some networks)
   ['ff00::', 8], // multicast
 ];
 for (const [net, prefix] of v6) blocked.addSubnet(net, prefix, 'ipv6');
 
-/** Extracts the embedded IPv4 address of an IPv4-mapped IPv6 address (::ffff:a.b.c.d or ::ffff:aabb:ccdd). */
-function mappedIpv4(address: string): string | null {
-  const dotted = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(address);
-  if (dotted) return dotted[1] ?? null;
-  const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(address);
-  if (hex) {
-    const hi = parseInt(hex[1] as string, 16);
-    const lo = parseInt(hex[2] as string, 16);
-    return `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+/** The 16 bytes of a valid IPv6 address in any textual form (compressed, with an embedded dotted IPv4, mixed case). */
+function ipv6Bytes(address: string): Uint8Array | null {
+  let a = address.toLowerCase();
+  const dot = a.lastIndexOf('.');
+  if (dot !== -1) {
+    const colon = a.lastIndexOf(':');
+    const v4 = a.slice(colon + 1).split('.').map(Number);
+    if (v4.length !== 4 || v4.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return null;
+    a = `${a.slice(0, colon + 1)}${(((v4[0] as number) << 8) | (v4[1] as number)).toString(16)}:${(((v4[2] as number) << 8) | (v4[3] as number)).toString(16)}`;
   }
+  const halves = a.split('::');
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const missing = 8 - head.length - tail.length;
+  if (halves.length === 1 ? missing !== 0 : missing < 1) return null;
+  const groups = [...head, ...Array<string>(halves.length === 2 ? missing : 0).fill('0'), ...tail];
+  if (groups.length !== 8 || groups.some((g) => !/^[0-9a-f]{1,4}$/.test(g))) return null;
+  const bytes = new Uint8Array(16);
+  groups.forEach((g, i) => {
+    const v = parseInt(g, 16);
+    bytes[i * 2] = v >> 8;
+    bytes[i * 2 + 1] = v & 255;
+  });
+  return bytes;
+}
+
+const dotted = (b: Uint8Array, at: number): string => `${b[at]}.${b[at + 1]}.${b[at + 2]}.${b[at + 3]}`;
+
+/**
+ * An IPv6 address that only wraps an IPv4 one is judged by the IPv4 inside. IPv4-mapped (::ffff:a.b.c.d), IPv4-translated
+ * (::ffff:0:a.b.c.d), NAT64 (64:ff9b::/96) and 6to4 (2002::/16, the IPv4 sits in bits 16–47) all reach the same host
+ * as the IPv4 address would. Returns null when the address does not wrap one.
+ */
+function embeddedIpv4(b: Uint8Array): string | null {
+  const zeros = (from: number, to: number): boolean => b.slice(from, to).every((x) => x === 0);
+  if (zeros(0, 10) && b[10] === 0xff && b[11] === 0xff) return dotted(b, 12); // ::ffff:a.b.c.d
+  if (zeros(0, 8) && b[8] === 0xff && b[9] === 0xff && b[10] === 0 && b[11] === 0) return dotted(b, 12); // ::ffff:0:a.b.c.d
+  if (b[0] === 0x00 && b[1] === 0x64 && b[2] === 0xff && b[3] === 0x9b && zeros(4, 12)) return dotted(b, 12); // 64:ff9b::/96
+  if (b[0] === 0x20 && b[1] === 0x02) return dotted(b, 2); // 2002::/16
   return null;
 }
 
@@ -66,8 +100,10 @@ export function isBlockedAddress(address: string): boolean {
   const family = isIP(bare);
   if (family === 0) return true;
   if (family === 6) {
-    const mapped = mappedIpv4(bare);
-    if (mapped) return blocked.check(mapped, 'ipv4');
+    const bytes = ipv6Bytes(bare);
+    if (!bytes) return true;
+    const v4 = embeddedIpv4(bytes);
+    if (v4) return blocked.check(v4, 'ipv4');
     return blocked.check(bare, 'ipv6');
   }
   return blocked.check(bare, 'ipv4');

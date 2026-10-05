@@ -22,6 +22,14 @@ const MAX_DEPTH = 256;
 const PARSE_CHUNK = 32_768;
 const PARSE_BUDGET_MS = 2_500;
 const MAX_OVERFLOW = 2_000;
+/** Parsing stops after this many elements: whatever the shape of a page, every later step works on a bounded tree. */
+const MAX_PARSED_ELEMENTS = 120_000;
+/** Strings that a page controls and that end up in the report are cut to these lengths. */
+const MAX_TITLE = 300;
+const MAX_META = 500;
+const MAX_CANONICAL = 2_048;
+const MAX_LANG = 35;
+const MAX_SCHEMA_TYPE = 100;
 /** Text scanned with regular expressions. */
 const MAX_SCAN_TEXT = 400_000;
 /** How many elements of one kind are examined (links, buttons, forms, articles, schema blocks). */
@@ -58,9 +66,24 @@ const REGISTRATION_RE = /(?<![\p{L}])(?:ЕИК|булстат|ддс\s*(?:ном
 const ENTITY_RE = /(?<![\p{L}])(?:ЕООД|ООД|АД|ЕТ)(?![\p{L}])/u;
 const IMAGE_EXT = /\.(?:png|jpe?g|gif|webp|svg|avif)$/i;
 
-const NOISE_TAGS = new Set(['script', 'style', 'noscript', 'template', 'svg', 'canvas', 'iframe', 'object', 'embed', 'link', 'meta']);
+const NOISE_TAGS = new Set(['script', 'style', 'noscript', 'template', 'svg', 'canvas', 'iframe', 'object', 'embed', 'link', 'meta', 'textarea', 'option', 'datalist']);
 // Hidden by inline style. "font-size:0" and "opacity:0" must not match "0.9em" or "0.5", hence the exact forms.
-const HIDDEN_STYLE_RE = /display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*0(?:px|em|rem|%|pt)?\s*(?:;|!|$)|opacity\s*:\s*0(?:\.0+)?\s*(?:;|!|$)|left\s*:\s*-9999/i;
+// Text that a style SHEET or a CSS class hides (".sr-only", "visually-hidden") cannot be seen from the markup alone.
+const HIDDEN_STYLE_RE = new RegExp(
+  [
+    'display\\s*:\\s*none',
+    'visibility\\s*:\\s*hidden',
+    'font-size\\s*:\\s*0(?:px|em|rem|%|pt)?\\s*(?:;|!|$)',
+    'font-size\\s*:\\s*[12](?:\\.\\d+)?px',
+    'opacity\\s*:\\s*0?\\.?0\\d*\\s*(?:;|!|$)',
+    '(?:left|right|top|bottom|text-indent)\\s*:\\s*-\\d{4,}',
+    'color\\s*:\\s*transparent',
+    'clip\\s*:\\s*rect\\(\\s*0',
+  ].join('|'),
+  'i',
+);
+const COLLAPSED_BOX_RE = /(?:height|width|max-height|max-width)\s*:\s*0(?:px|em|rem|%)?\s*(?:;|!|$)/i;
+const CLIPPED_RE = /overflow\s*:\s*hidden/i;
 const COOKIE_TAGS = new Set(['div', 'section', 'aside']);
 const COOKIE_RE = /cookie/i;
 const CONSENT_RE = /consent|gdpr/i;
@@ -71,10 +94,52 @@ function isNoise(el: Element): boolean {
   if (NOISE_TAGS.has(el.name)) return true;
   const a = el.attribs;
   if ('hidden' in a || a['aria-hidden'] === 'true') return true;
-  if (a.style && HIDDEN_STYLE_RE.test(a.style)) return true;
-  if (COOKIE_TAGS.has(el.name) && (COOKIE_RE.test(a.id ?? '') || COOKIE_RE.test(a.class ?? ''))) return true;
-  if (el.name === 'div' && (CONSENT_RE.test(a.id ?? '') || CONSENT_RE.test(a.class ?? ''))) return true;
+  if (a.style && (HIDDEN_STYLE_RE.test(a.style) || (COLLAPSED_BOX_RE.test(a.style) && CLIPPED_RE.test(a.style)))) return true;
+  // A class mentioning "cookie" marks a banner only if the element is small and holds no page content: a page wrapper
+  // with a class such as "has-cookie-banner" must not take the whole page with it.
+  if (COOKIE_TAGS.has(el.name) && (COOKIE_RE.test(a.id ?? '') || COOKIE_RE.test(a.class ?? '')) && looksLikeBanner(el)) return true;
+  if (el.name === 'div' && (CONSENT_RE.test(a.id ?? '') || CONSENT_RE.test(a.class ?? '')) && looksLikeBanner(el)) return true;
   return false;
+}
+
+/** Small (a few sentences), without headings or main content, and cheap to decide: the walk is bounded. */
+function looksLikeBanner(el: Element): boolean {
+  let chars = 0;
+  let steps = 0;
+  const stack: AnyNode[] = [el];
+  while (stack.length > 0) {
+    const n = stack.pop() as AnyNode;
+    if (++steps > 5_000) return false;
+    if (n.type === 'text') {
+      chars += n.data.trim().length;
+      if (chars > 800) return false;
+      continue;
+    }
+    if (isElement(n) && n !== el && (n.name === 'main' || n.name === 'article' || n.name === 'h1')) return false;
+    const kids = childrenOf(n);
+    for (let i = kids.length - 1; i >= 0; i--) stack.push(kids[i] as ChildNode);
+  }
+  return true;
+}
+
+/** A form with a textarea, or three or more free-text fields; a search box (or role=search) makes it a search form. */
+function isContactForm(form: Element): boolean {
+  if (form.attribs.role === 'search') return false;
+  let textareas = 0;
+  let textInputs = 0;
+  const stack: AnyNode[] = [...form.children];
+  while (stack.length > 0) {
+    const n = stack.pop() as AnyNode;
+    if (!isElement(n)) continue;
+    if (n.name === 'textarea') textareas++;
+    else if (n.name === 'input') {
+      const type = (n.attribs.type ?? 'text').toLowerCase();
+      if (type === 'search') return false;
+      if (type !== 'hidden' && type !== 'submit' && type !== 'button' && type !== 'checkbox' && type !== 'radio') textInputs++;
+    }
+    for (const kid of n.children) stack.push(kid);
+  }
+  return textareas > 0 || textInputs >= 3;
 }
 
 /** Navigation, footers and sidebars: what surrounds the content. */
@@ -114,7 +179,7 @@ function jsonLdTypes($: CheerioAPI): string[] {
     const t = ($(el).attr('itemtype') ?? '').split('/').pop();
     if (t) found.add(t);
     });
-  return [...found].slice(0, 20);
+  return [...found].map((t) => t.slice(0, MAX_SCHEMA_TYPE)).slice(0, 20);
 }
 
 const isElement = (n: AnyNode): n is Element => n.type === 'tag' || n.type === 'script' || n.type === 'style';
@@ -220,16 +285,27 @@ function stripNoise(root: ParentNode): void {
 class BoundedHandler extends DomHandler {
   private open = 0;
   private overflow = 0;
-  /** True once the page nests absurdly deep (thousands of levels past the limit): the rest of it is not worth reading. */
+  private elements = 0;
+  /** True once the page nests absurdly deep or has far too many elements: the rest of it is not worth reading. */
   tooDeep = false;
 
   override onopentag(name: string, attribs: { [key: string]: string }): void {
+    if (++this.elements > MAX_PARSED_ELEMENTS) this.tooDeep = true;
     if (this.open >= MAX_DEPTH) {
       if (++this.overflow > MAX_OVERFLOW) this.tooDeep = true;
       return;
     }
     this.open++;
     super.onopentag(name, attribs);
+  }
+
+  /**
+   * Text inside elements that were not created is dropped, not moved into the deepest parent: its own attributes
+   * (hidden, style) were never seen, so it could be anything a stripper would have removed.
+   */
+  override ontext(data: string): void {
+    if (this.overflow > 0) return;
+    super.ontext(data);
   }
 
   override onclosetag(): void {
@@ -341,9 +417,9 @@ export function extractPage(html: string, ctx: ExtractContext): ExtractedPage {
   })();
 
   // ── head-level facts (before any removal) ──────────────────────────────────────────────────
-  const title = squash($('head > title').first().text() || $('title').first().text() || $('meta[property="og:title"]').attr('content') || '');
-  const metaDescription = squash($('meta[name="description" i]').attr('content') ?? '');
-  const canonicalHref = $('link[rel="canonical" i]').attr('href');
+  const title = squash($('head > title').first().text() || $('title').first().text() || $('meta[property="og:title"]').attr('content') || '').slice(0, MAX_TITLE);
+  const metaDescription = squash($('meta[name="description" i]').attr('content') ?? '').slice(0, MAX_META);
+  const canonicalHref = $('link[rel="canonical" i]').attr('href')?.slice(0, MAX_CANONICAL);
   let canonical: string | null = null;
   if (canonicalHref) {
     try {
@@ -353,7 +429,7 @@ export function extractPage(html: string, ctx: ExtractContext): ExtractedPage {
     }
   }
   const robotsMeta = ($('meta[name="robots" i]').attr('content') ?? '').toLowerCase();
-  const lang = ($('html').attr('lang') ?? '').trim() || null;
+  const lang = ($('html').attr('lang') ?? '').trim().slice(0, MAX_LANG) || null;
   const hasViewport = $('meta[name="viewport" i]').length > 0;
   const schemaTypes = jsonLdTypes($);
 
@@ -377,8 +453,9 @@ export function extractPage(html: string, ctx: ExtractContext): ExtractedPage {
   checkBudget('текст');
   const telLinks = new Set(
     $('a[href^="tel:" i]')
-      .map((_, el) => ($(el).attr('href') ?? '').replace(/\D/g, ''))
-      .get()
+      .toArray()
+      .slice(0, MAX_ELEMENTS)
+      .map((el) => (isElement(el) ? (el.attribs.href ?? '') : '').replace(/\D/g, ''))
       .filter((d) => d.length >= 7),
   );
   for (const m of allText.matchAll(PHONE_RE)) {
@@ -387,23 +464,17 @@ export function extractPage(html: string, ctx: ExtractContext): ExtractedPage {
   }
   const emails = new Set(
     $('a[href^="mailto:" i]')
-      .map((_, el) => ($(el).attr('href') ?? '').replace(/^mailto:/i, '').split('?')[0]?.trim().toLowerCase() ?? '')
-      .get()
+      .toArray()
+      .slice(0, MAX_ELEMENTS)
+      .map((el) => (isElement(el) ? (el.attribs.href ?? '') : '').replace(/^mailto:/i, '').split('?')[0]?.trim().toLowerCase().slice(0, 254) ?? '')
       .filter(Boolean),
   );
   for (const m of allText.matchAll(EMAIL_RE)) if (!IMAGE_EXT.test(m[0])) emails.add(m[0].toLowerCase());
 
-  const hasContactForm =
-    $('form')
-      .slice(0, 50)
-      .filter((_, form) => {
-        const f = $(form);
-        if (f.is('[role="search"]') || f.find('input[type="search"]').length > 0) return false;
-        const textareas = f.find('textarea').length;
-        const textInputs = f.find('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"])').length;
-        return textareas > 0 || textInputs >= 3;
-      })
-      .length > 0;
+  const hasContactForm = $('form')
+    .toArray()
+    .slice(0, 50)
+    .some((form) => isElement(form) && isContactForm(form));
 
   const ctaTexts = uniqueLimited(
     $('a, button, input[type="submit"], input[type="button"]')

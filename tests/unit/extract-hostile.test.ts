@@ -33,6 +33,12 @@ describe('extractPage on hostile input stays fast', () => {
     ['10 000 forms', page('<form><textarea></textarea></form>'.repeat(10_000))],
     ['a navigation with 40 000 links', page(`<nav>${'<a href="/">a</a>'.repeat(40_000)}</nav>`)],
     ['a 1 MB title', page('<p>x</p>', `<title>${'t'.repeat(1_000_000)}</title>`)],
+    ['one form with 100 000 inputs', page(`<form>${'<input type=text name=a>'.repeat(40_000)}</form>`)],
+    ['one form with 60 000 plain inputs', page(`<form>${'<input>'.repeat(60_000)}</form>`)],
+    ['40 000 tel: links', page('<a href="tel:1234567">x</a>'.repeat(40_000))],
+    ['40 000 mailto: links', page('<a href="mailto:a@b.co">x</a>'.repeat(40_000))],
+    ['40 000 nested cookie-looking wrappers', page('<div class="cookie">'.repeat(2_000) + 'x' + '</div>'.repeat(2_000))],
+    ['300 000 empty elements (the element cap)', page('<i></i>'.repeat(150_000))],
   ];
 
   it.each(cases)('%s', (_label, html) => {
@@ -96,6 +102,62 @@ describe('extractPage hidden-text and text hygiene', () => {
     const r = extractPage(html, ctx);
     expect(r.metrics.title).toBe('Цена на сайт');
     expect(r.metrics.h1).toEqual(['Изработка на уебсайт']);
+  });
+
+  it('does not let hidden payloads escape by nesting them deeper than the depth limit', () => {
+    const payload = 'ПРОМПТ-ИНЖЕКЦИЯ';
+    const wrap = (inner: string, levels: number) => '<div>'.repeat(levels) + inner + '</div>'.repeat(levels);
+    for (const levels of [250, 260, 400, 5000]) {
+      const html = page(
+        `<main>${wrap(`<script>${payload} script</script><p hidden>${payload} hidden</p><p aria-hidden="true">${payload} aria</p><p style="display:none">${payload} display</p>`, levels)}<p>${'видим текст '.repeat(60)}</p></main>`,
+      );
+      const text = extractPage(html, ctx).text.full;
+      expect(text, `depth ${levels}`).not.toContain(payload);
+      // up to a few hundred levels the rest of the page is still read; absurd nesting cuts the page off
+      if (levels <= 400) expect(text, `depth ${levels}`).toContain('видим текст');
+    }
+  });
+
+  it('only treats small elements as cookie banners: a page wrapper that merely mentions cookies keeps its content', () => {
+    for (const cls of ['site-wrapper has-cookie-banner', 'cookie-law-info-bar-visible', 'gdpr-compliant', 'consent-given']) {
+      const html = page(`<div class="${cls}"><main><h1>Изработка на уебсайт</h1><p>${'пълно съдържание на страницата '.repeat(100)}</p></main></div>`);
+      const r = extractPage(html, ctx);
+      expect(r.metrics.h1, cls).toEqual(['Изработка на уебсайт']);
+      expect(r.metrics.wordCount, cls).toBeGreaterThan(300);
+    }
+    // and an actual banner, even one with a headline-free paragraph and a button, is still removed
+    const banner = page(`<div id="cookie-notice"><p>Използваме бисквитки.</p><button>Приемам</button></div><main><p>${'съдържание '.repeat(80)}</p></main>`);
+    expect(extractPage(banner, ctx).text.full).not.toContain('бисквитки');
+  });
+
+  it('strips more ways of hiding text, and leaves the visible neighbours alone', () => {
+    const html = page(`<main>
+      <p style="position:absolute;left:-10000px">скрит а</p>
+      <p style="height:0; overflow:hidden">скрит б</p>
+      <p style="font-size:1px">скрит в</p>
+      <p style="color: transparent">скрит г</p>
+      <p style="opacity:.001">скрит д</p>
+      <textarea>скрит е</textarea>
+      <select><option>скрит ж</option></select>
+      <p style="height:0">остава а</p>
+      <p style="overflow:hidden">остава б</p>
+      <p style="font-size:14px">остава в</p>
+      ${'<p>достатъчно дълъг видим текст за основното съдържание на страницата. </p>'.repeat(20)}
+    </main>`);
+    const text = extractPage(html, ctx).text.full;
+    for (const hidden of ['скрит а', 'скрит б', 'скрит в', 'скрит г', 'скрит д', 'скрит е', 'скрит ж']) expect(text, hidden).not.toContain(hidden);
+    for (const shown of ['остава а', 'остава б', 'остава в']) expect(text, shown).toContain(shown);
+  });
+
+  it('cuts the strings a page controls to a sane length', () => {
+    const long = 'x'.repeat(100_000);
+    const html = `<!doctype html><html lang="${long}"><head><title>${long}</title><meta name="description" content="${long}"><link rel="canonical" href="https://competitor.example/${long}"><script type="application/ld+json">{"@type":"${long}"}</script></head><body><p>x</p></body></html>`;
+    const m = extractPage(html, ctx).metrics;
+    expect(m.title?.length).toBeLessThanOrEqual(300);
+    expect(m.metaDescription?.length).toBeLessThanOrEqual(500);
+    expect((m.lang ?? '').length).toBeLessThanOrEqual(35);
+    expect((m.canonical ?? '').length).toBeLessThanOrEqual(2_100);
+    expect(m.schemaTypes.every((t) => t.length <= 100)).toBe(true);
   });
 
   it('keeps cookie banners out of the measured text', () => {

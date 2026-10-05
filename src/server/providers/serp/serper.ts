@@ -38,7 +38,7 @@ export class SerperProvider implements SerpProvider {
     const raw = await postJson(
       `${this.baseUrl}/search`,
       { q: query.keyword, gl: query.market.gl, hl: query.market.hl, num: query.depth },
-      { vendor: 'Serper', headers: { 'x-api-key': this.apiKey }, ...(this.fetchImpl ? { fetchImpl: this.fetchImpl } : {}), ...(options.signal ? { signal: options.signal } : {}) },
+      { vendor: 'Serper', secrets: [this.apiKey], headers: { 'x-api-key': this.apiKey }, ...(this.fetchImpl ? { fetchImpl: this.fetchImpl } : {}), ...(options.signal ? { signal: options.signal } : {}) },
     );
     const parsed = SearchResponseSchema.safeParse(raw);
     if (!parsed.success) throw new SerpError('bad_response', 'Serper: неочакван формат на отговора', undefined, { cause: parsed.error });
@@ -58,7 +58,7 @@ export class SerperProvider implements SerpProvider {
       const raw = await postJson(
         `${this.baseUrl}/autocomplete`,
         { q: keyword, gl: market.gl, hl: market.hl },
-        { vendor: 'Serper', retries: 0, headers: { 'x-api-key': this.apiKey }, ...(this.fetchImpl ? { fetchImpl: this.fetchImpl } : {}), ...(options.signal ? { signal: options.signal } : {}) },
+        { vendor: 'Serper', secrets: [this.apiKey], retries: 0, headers: { 'x-api-key': this.apiKey }, ...(this.fetchImpl ? { fetchImpl: this.fetchImpl } : {}), ...(options.signal ? { signal: options.signal } : {}) },
       );
       const parsed = AutocompleteSchema.safeParse(raw);
       if (!parsed.success) return [];

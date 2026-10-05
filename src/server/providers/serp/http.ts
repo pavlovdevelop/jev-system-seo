@@ -12,6 +12,8 @@ export interface PostJsonOptions {
   signal?: AbortSignal;
   /** Human name of the vendor used in error messages. */
   vendor: string;
+  /** Credentials to blank out of anything quoted from the vendor's reply (a vendor may echo request headers in an error). */
+  secrets?: readonly string[];
 }
 
 /** POST a JSON body, retry transient failures with backoff, and map HTTP errors to SerpError. */
@@ -48,7 +50,7 @@ export async function postJson(url: string, body: unknown, options: PostJsonOpti
       }
     }
 
-    const text = (await response.text().catch(() => '')).slice(0, 300);
+    const text = redact((await response.text().catch(() => '')).slice(0, 300), options.secrets);
     const status = response.status;
     if (status === 401 || status === 403) throw new SerpError('auth', `${vendor} отхвърли API ключа (${status}). Провери данните за достъп.`, status);
     if (status === 402 || (status === 400 && /credit|balance|fund|quota/i.test(text))) {
@@ -61,6 +63,16 @@ export async function postJson(url: string, body: unknown, options: PostJsonOpti
     if (attempt < retries) await sleep(backoff(attempt, response.headers.get('retry-after')), options.signal).catch(() => undefined);
   }
   throw lastError ?? new SerpError('unavailable', `${vendor}: неуспешна заявка`);
+}
+
+/** Replaces every occurrence of a credential (and of its base64 form, as used in Basic auth) with ***. */
+export function redact(text: string, secrets: readonly string[] = []): string {
+  let out = text;
+  for (const secret of secrets) {
+    if (secret.length < 6) continue; // too short to be a credential; replacing it would mangle ordinary words
+    for (const form of new Set([secret, Buffer.from(secret).toString('base64')])) out = out.split(form).join('***');
+  }
+  return out;
 }
 
 function backoff(attempt: number, retryAfter: string | null): number {

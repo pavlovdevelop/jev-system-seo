@@ -79,6 +79,8 @@ export class DataForSeoProvider implements SerpProvider, VolumeProvider {
   private opts(options: CallOptions) {
     return {
       vendor: 'DataForSEO',
+      // the password, and the whole "login:password" pair in its base64 (Basic) form
+      secrets: [this.password, `${this.login}:${this.password}`],
       headers: authHeader(this.login, this.password),
       ...(this.fetchImpl ? { fetchImpl: this.fetchImpl } : {}),
       ...(options.signal ? { signal: options.signal } : {}),

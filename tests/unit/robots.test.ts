@@ -64,12 +64,29 @@ describe('RobotsChecker', () => {
     expect(calls()).toBe(2);
   });
 
-  it('treats a missing robots.txt (4xx) or an unreachable one as allowed, but 5xx as disallow-all (RFC 9309)', async () => {
+  it('allows a missing robots.txt (4xx) but assumes complete disallow when it is unreachable or answers 5xx (RFC 9309)', async () => {
     expect((await make({ status: 404, text: '' }).checker.check(new URL('https://a.example/x'))).allowed).toBe(true);
-    expect((await make(null).checker.check(new URL('https://a.example/x'))).allowed).toBe(true);
     const blocked = await make({ status: 503, text: '' }).checker.check(new URL('https://a.example/x'));
     expect(blocked.allowed).toBe(false);
     expect(blocked.reason).toMatch(/503/);
+    const unreachable = await make(null).checker.check(new URL('https://a.example/x'));
+    expect(unreachable.allowed).toBe(false);
+    expect(unreachable.reason).toMatch(/robots\.txt/);
+  });
+
+  it('reads files that end lines with a bare carriage return (valid per RFC 9309)', () => {
+    expect(allowed('User-agent: *\rDisallow: /private\r', '/private/data')).toBe(false);
+    expect(allowed('User-agent: *\r\nDisallow: /private\r\n', '/private/data')).toBe(false);
+  });
+
+  it('matches a group on the crawler\'s product token only, not on the rest of the User-Agent header', () => {
+    const ua = 'JevSeoRadar/0.1 (+https://github.com/pavlovdevelop/jev-system-seo)';
+    // "seo" and "github" appear in the header's URL but are not our name
+    expect(allowed('User-agent: seo\nAllow: /\n\nUser-agent: *\nDisallow: /', '/page', ua)).toBe(false);
+    expect(allowed('User-agent: github\nAllow: /\n\nUser-agent: *\nDisallow: /', '/page', ua)).toBe(false);
+    // our own token, in any case, addresses us and wins over *
+    expect(allowed('User-agent: JEVSEORADAR\nAllow: /\n\nUser-agent: *\nDisallow: /', '/page', ua)).toBe(true);
+    expect(allowed('User-agent: jevseoradar\nDisallow: /private\n\nUser-agent: *\nAllow: /', '/private/x', ua)).toBe(false);
   });
 });
 
@@ -120,15 +137,25 @@ describe('patternMatches', () => {
 });
 
 describe('a hostile robots.txt', () => {
-  it('cannot make parsing or matching expensive: huge lines and rule floods are ignored', () => {
+  it('cannot make matching expensive, and nothing is dropped: the rule that forbids us counts however many rules precede it', () => {
     const lines = ['User-agent: *', `Disallow: /${'x'.repeat(5_000)}`];
     for (let i = 0; i < 20_000; i++) lines.push(`Disallow: /*a*a*a*a*b${i}`);
-    lines.push('Allow: /public');
+    for (let i = 0; i < 6_000; i++) lines.push(`Disallow: /other-bot-section-${i}/`);
+    lines.push('Disallow: /private', 'Allow: /public');
     const t0 = performance.now();
     const rules = rulesFor(parseRobots(lines.join('\n')), 'JevSeoRadar/0.1');
-    expect(rules.length).toBeLessThanOrEqual(5_000);
-    expect(rules.every((r) => r.pattern.length <= 1_024)).toBe(true);
+    expect(rules.length).toBeGreaterThan(26_000);
+    expect(isPathAllowed(rules, '/private/data')).toBe(false);
+    expect(isPathAllowed(rules, `/${'x'.repeat(5_000)}/y`)).toBe(false); // a long pattern still applies
+    expect(isPathAllowed(rules, '/public')).toBe(true);
     isPathAllowed(rules, `/${'a'.repeat(2_000)}`);
-    expect(performance.now() - t0).toBeLessThan(1_500);
+    expect(performance.now() - t0).toBeLessThan(2_000);
+  });
+
+  it('a rule in another bot\'s group, however many there are, does not hide the rules that apply to us', () => {
+    const lines = ['User-agent: otherbot'];
+    for (let i = 0; i < 6_000; i++) lines.push(`Disallow: /other-bot-section-${i}/`);
+    lines.push('', 'User-agent: *', 'Disallow: /private');
+    expect(isPathAllowed(rulesFor(parseRobots(lines.join('\n')), 'JevSeoRadar/0.1'), '/private/data')).toBe(false);
   });
 });

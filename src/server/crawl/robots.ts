@@ -13,20 +13,16 @@ export interface RobotsGroup {
 
 const stripBom = (text: string): string => (text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
 
-// A robots.txt is untrusted input from the site we are about to visit. RFC 9309 asks crawlers to read at least 500 KiB;
-// beyond these limits lines and rules are ignored rather than parsed, so a hostile file cannot make matching expensive.
-const MAX_LINE = 2_048;
-const MAX_PATTERN = 1_024;
-const MAX_RULES = 5_000;
+// A robots.txt is untrusted input from the site we are about to visit, but its size is already capped by the fetcher
+// (512 KiB, the minimum RFC 9309 asks crawlers to read) and matching is linear (see patternMatches). So nothing is
+// dropped while parsing: a cap on rules or line length would let a site push the rule that forbids us past the cap.
 
 export function parseRobots(text: string): RobotsGroup[] {
   const groups: RobotsGroup[] = [];
   let current: RobotsGroup | null = null;
   let lastWasAgent = false;
 
-  let ruleCount = 0;
-  for (const rawLine of stripBom(text).split(/\r?\n/)) {
-    if (rawLine.length > MAX_LINE) continue;
+  for (const rawLine of stripBom(text).split(/\r\n|\r|\n/)) {
     const line = rawLine.replace(/#.*$/, '').trim();
     if (!line) continue;
     const colon = line.indexOf(':');
@@ -44,10 +40,7 @@ export function parseRobots(text: string): RobotsGroup[] {
       continue;
     }
     if (key === 'allow' || key === 'disallow') {
-      if (current && value !== '' && value.length <= MAX_PATTERN && ruleCount < MAX_RULES) {
-        current.rules.push({ allow: key === 'allow', pattern: value });
-        ruleCount++;
-      }
+      if (current && value !== '') current.rules.push({ allow: key === 'allow', pattern: value });
       lastWasAgent = false;
       continue;
     }
@@ -80,10 +73,19 @@ export function patternMatches(pattern: string, path: string): boolean {
   return anchored ? path.length - last.length >= position && path.endsWith(last) : path.indexOf(last, position) !== -1;
 }
 
-/** Rules that apply to `userAgent`: the groups naming it (substring match, case-insensitive), else the `*` groups. */
+/** The crawler's product token: "JevSeoRadar/0.1 (+https://…)" → "jevseoradar". Group names are matched against this alone. */
+export function productToken(userAgent: string): string {
+  return (userAgent.trim().split(/[\s/]/)[0] ?? '').toLowerCase();
+}
+
+/**
+ * Rules that apply to `userAgent` (RFC 9309): the groups naming its product token (case-insensitive, whole token),
+ * else the `*` groups. The rest of the User-Agent header — the contact URL, the version — is not part of the match,
+ * so a group such as "User-agent: seo" or "github" does not accidentally address a crawler whose header mentions them.
+ */
 export function rulesFor(groups: readonly RobotsGroup[], userAgent: string): RobotsRule[] {
-  const ua = userAgent.toLowerCase();
-  const specific = groups.filter((g) => g.agents.some((a) => a !== '*' && a !== '' && ua.includes(a)));
+  const token = productToken(userAgent);
+  const specific = groups.filter((g) => g.agents.some((a) => a !== '*' && a !== '' && a === token));
   const chosen = specific.length > 0 ? specific : groups.filter((g) => g.agents.includes('*'));
   return chosen.flatMap((g) => g.rules);
 }
@@ -129,7 +131,8 @@ export class RobotsChecker {
 
   private async load(origin: string) {
     const res = await this.fetchRobots(`${origin}/robots.txt`);
-    if (res === null) return { rules: [], blockAll: false, note: null }; // unreachable: cannot tell, the page fetch will fail on its own
+    // Unreachable (network error, timeout, a redirect we refuse to follow): RFC 9309 says to assume complete disallow.
+    if (res === null) return { rules: [], blockAll: true, note: 'robots.txt не може да се прочете — страницата не се изтегля (RFC 9309)' };
     if (res.status >= 500) return { rules: [], blockAll: true, note: `robots.txt е недостъпен (${res.status})` };
     if (res.status >= 400) return { rules: [], blockAll: false, note: null }; // no robots.txt → everything allowed
     return { rules: rulesFor(parseRobots(res.text), this.userAgent), blockAll: false, note: null };

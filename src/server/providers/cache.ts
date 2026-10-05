@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import type { Market } from '../../shared/markets';
@@ -40,8 +40,11 @@ export class DiskCache {
   }
 
   /**
-   * Entries only expire when they are read again, so keys nobody asks for twice would stay forever. This deletes
-   * every file that has not been written for longer than the TTL. Returns how many files it removed.
+   * Entries only expire when they are read again, so keys nobody asks for twice would stay forever. This deletes the
+   * expired ones. A file's modification time is set to its expiry when it is written, so a file whose time is still
+   * ahead is valid without being opened; only files that look expired (or were written by an older version, which used
+   * the write time) are read to confirm. Entries have different TTLs (a SERP lives a day, search volumes a week), which
+   * is why the age of a file alone cannot decide. Returns how many files it removed.
    */
   async prune(now = Date.now()): Promise<number> {
     if (!this.enabled) return 0;
@@ -62,9 +65,18 @@ export class DiskCache {
       for (const name of files) {
         const file = join(this.dir, ns, name);
         try {
-          if (now - (await stat(file)).mtimeMs > this.defaultTtlMs) {
+          if ((await stat(file)).mtimeMs > now) continue; // its expiry is still ahead
+          let expiresAt = 0;
+          try {
+            expiresAt = (JSON.parse(gunzipSync(await readFile(file)).toString('utf-8')) as { expiresAt?: number }).expiresAt ?? 0;
+          } catch {
+            // unreadable: treated as expired below
+          }
+          if (expiresAt <= now) {
             await rm(file, { force: true });
             removed++;
+          } else {
+            await utimes(file, new Date(expiresAt), new Date(expiresAt)); // an older file: from now on it carries its expiry
           }
         } catch {
           // a file that vanished or cannot be read is not our problem
@@ -80,7 +92,9 @@ export class DiskCache {
     try {
       await mkdir(dirname(file), { recursive: true, mode: 0o700 });
       const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
-      await writeFile(tmp, gzipSync(JSON.stringify({ key, expiresAt: Date.now() + ttlMs, value })), { mode: 0o600 });
+      const expiresAt = Date.now() + ttlMs;
+      await writeFile(tmp, gzipSync(JSON.stringify({ key, expiresAt, value })), { mode: 0o600 });
+      await utimes(tmp, new Date(expiresAt), new Date(expiresAt)); // the file's time is its expiry (see prune)
       await rename(tmp, file);
     } catch {
       // A cache that cannot write must never break an analysis.

@@ -81,3 +81,43 @@ describe('ssrfLookup', () => {
     expect(Array.isArray(out.list)).toBe(true);
   });
 });
+
+describe('isBlockedAddress: IPv6 ranges that wrap or imitate private space', () => {
+  it.each([
+    '::7f00:1', // IPv4-compatible (deprecated) loopback
+    '::a00:1',
+    '::ffff:0:7f00:1', // IPv4-translated
+    '::ffff:0:127.0.0.1',
+    '2002:7f00:1::', // 6to4 wrapping 127.0.0.1
+    '2002:a9fe:a9fe::1', // 6to4 wrapping 169.254.169.254
+    '64:ff9b::a9fe:a9fe', // NAT64 wrapping the cloud metadata address
+    '64:ff9b::10.0.0.1',
+    '64:ff9b:1::1', // local-use NAT64
+    'fec0::1', // site-local
+    '2001::1', // Teredo
+    '2001:2::1', // benchmarking
+    '3fff::1', // documentation
+    '2001:db8::1',
+    '100::1',
+    '168.63.129.16', // Azure WireServer
+  ])('blocks %s', (addr) => {
+    expect(isBlockedAddress(addr)).toBe(true);
+  });
+
+  it.each([
+    '64:ff9b::808:808', // NAT64 of 8.8.8.8: a normal address on a DNS64 network
+    '64:ff9b::8.8.8.8',
+    '2002:808:808::1', // 6to4 of 8.8.8.8
+    '::ffff:8.8.8.8',
+    '::ffff:808:808',
+    '2606:4700:4700::1111',
+    '2a00:1450:4001:81b::200e',
+  ])('allows %s', (addr) => {
+    expect(isBlockedAddress(addr)).toBe(false);
+  });
+
+  it('judges every textual form of the same address alike', () => {
+    for (const form of ['::1', '0:0:0:0:0:0:0:1', '0000:0000:0000:0000:0000:0000:0000:0001', '::0.0.0.1', '[::1]']) expect(isBlockedAddress(form), form).toBe(true);
+    for (const form of ['2001:4860:4860::8888', '2001:4860:4860:0:0:0:0:8888', '2001:4860:4860:0000:0000:0000:0000:8888']) expect(isBlockedAddress(form), form).toBe(false);
+  });
+});

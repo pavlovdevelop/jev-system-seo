@@ -128,7 +128,12 @@ export class SafeFetcher implements PageFetcher {
         return failure('error', err instanceof Error ? err.message : 'Невалиден URL');
       }
 
-      const verdict = await this.robots.check(url);
+      let verdict: Awaited<ReturnType<RobotsChecker['check']>>;
+      try {
+        verdict = await this.robots.check(url);
+      } catch {
+        return failure('error', 'Грешка при проверка на robots.txt');
+      }
       if (!verdict.allowed) return failure('blocked_robots', verdict.reason ?? 'robots.txt забранява достъпа');
 
       const started = performance.now();

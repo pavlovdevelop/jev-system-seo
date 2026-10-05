@@ -211,9 +211,9 @@ describe('robots.txt redirects (SSRF)', () => {
     });
     const fetcher = new SafeFetcher({ ...options, fetchImpl });
     const result = await fetcher.fetchPage('https://evil.example/page');
-    // the redirect target was never requested; robots.txt counts as unreachable, so the page itself is fetched
-    expect(requested.filter((u) => u !== 'https://evil.example/robots.txt' && u !== 'https://evil.example/page')).toEqual([]);
-    expect(result.status).toBe('ok');
+    // the redirect target was never requested; robots.txt could not be read, so (RFC 9309) the page is not fetched either
+    expect(requested).toEqual(['https://evil.example/robots.txt']);
+    expect(result.status).toBe('blocked_robots');
     await fetcher.close();
   });
 
@@ -237,8 +237,9 @@ describe('robots.txt redirects (SSRF)', () => {
       'https://loop.example/page': page,
     });
     const fetcher = new SafeFetcher({ ...options, fetchImpl });
-    expect((await fetcher.fetchPage('https://loop.example/page')).status).toBe('ok');
+    expect((await fetcher.fetchPage('https://loop.example/page')).status).toBe('blocked_robots');
     expect(requested.filter((u) => u.endsWith('/robots.txt')).length).toBeLessThanOrEqual(6);
+    expect(requested.filter((u) => u.endsWith('/page'))).toEqual([]);
     await fetcher.close();
   });
 });

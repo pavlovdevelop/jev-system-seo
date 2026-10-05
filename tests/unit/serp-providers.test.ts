@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MARKETS } from '../../src/shared/markets';
 import { CachedFetcher, CachedSerpProvider, CachedVolumeProvider, DiskCache } from '../../src/server/providers/cache';
 import { DataForSeoProvider } from '../../src/server/providers/serp/dataforseo';
-import { postJson } from '../../src/server/providers/serp/http';
+import { postJson, redact } from '../../src/server/providers/serp/http';
 import { SerperProvider } from '../../src/server/providers/serp/serper';
 import { buildSerpData, domainOf, SerpError, type SerpProvider } from '../../src/server/providers/serp/types';
 import { Meter } from '../../src/server/util/meter';
@@ -90,6 +90,56 @@ describe('postJson', () => {
   it('reports invalid JSON bodies and network failures', async () => {
     await expect(postJson('https://x.test', {}, { ...opts, fetchImpl: async () => new Response('<html>', { status: 200 }) })).rejects.toMatchObject({ kind: 'bad_response' });
     await expect(postJson('https://x.test', {}, { ...opts, retries: 0, fetchImpl: async () => { throw new Error('ECONNRESET'); } })).rejects.toMatchObject({ kind: 'unavailable' });
+  });
+});
+
+describe('redact', () => {
+  it('blanks a credential, wherever it is quoted, and its Basic-auth form', () => {
+    const secret = 's3cretPassw0rd';
+    const basic = Buffer.from(`me@example.com:${secret}`).toString('base64');
+    expect(redact(`bad key ${secret}, again ${secret}`, [secret])).toBe('bad key ***, again ***');
+    expect(redact(`Authorization: Basic ${basic}`, [`me@example.com:${secret}`])).toBe('Authorization: Basic ***');
+    expect(redact(`password ${Buffer.from(secret).toString('base64')}`, [secret])).toBe('password ***');
+  });
+
+  it('leaves text alone when there is nothing to hide, and never mangles words with a tiny "secret"', () => {
+    expect(redact('plain text')).toBe('plain text');
+    expect(redact('plain text', [])).toBe('plain text');
+    expect(redact('a key is a key', ['key'])).toBe('a key is a key'); // shorter than a credential could be
+    expect(redact('a key is a key', [''])).toBe('a key is a key');
+  });
+});
+
+describe('vendor errors never quote our credentials', () => {
+  const KEY = 'sk_live_4f9a1c7e2b';
+  const echoed = () => json({ message: `Invalid request. Headers: x-api-key=${KEY}` }, 400);
+
+  it('postJson blanks the secrets it was given in the quoted body', async () => {
+    const r = recorder(echoed);
+    const err = await postJson('https://x.test', {}, { vendor: 'Test', headers: {}, secrets: [KEY], fetchImpl: r.fetchImpl }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SerpError);
+    expect((err as SerpError).message).toContain('Invalid request');
+    expect((err as SerpError).message).not.toContain(KEY);
+  });
+
+  it('Serper passes its API key (search and autocomplete)', async () => {
+    const err = await new SerperProvider(KEY, recorder(echoed).fetchImpl).search({ keyword: 'x', market: BG, depth: 10 }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SerpError);
+    expect((err as SerpError).message).not.toContain(KEY);
+    const dead = recorder(() => json({ message: `denied for ${KEY}` }, 418));
+    const soft = await new SerperProvider(KEY, dead.fetchImpl).suggest('x', BG).catch((e: unknown) => e);
+    expect(soft).toEqual([]); // autocomplete failures are soft, so nothing is thrown (or quoted) at all
+  });
+
+  it('DataForSEO passes its password and the whole login:password pair', async () => {
+    const basic = Buffer.from(`login:${KEY}`).toString('base64');
+    const r = recorder(() => json({ message: `bad header Basic ${basic}, password ${KEY}` }, 400));
+    const err = await new DataForSeoProvider('login', KEY, r.fetchImpl).search({ keyword: 'x', market: BG, depth: 10 }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SerpError);
+    const message = (err as SerpError).message;
+    expect(message).toContain('bad header');
+    expect(message).not.toContain(KEY);
+    expect(message).not.toContain(basic);
   });
 });
 
