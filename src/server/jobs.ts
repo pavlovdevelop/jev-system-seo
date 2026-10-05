@@ -141,7 +141,14 @@ export class JobManager {
       await store.saveReport(report);
       this.emit(job, 'done', 100, 'Готово');
       this.finish(job, 'done', null);
-      logger.info(`анализ ${job.reportId} „${report.seed.keyword}“ — ${Math.round((Date.now() - started) / 1000)} с, Jev заявки: ${report.usage.jevRequests}, SERP: ${report.usage.serpCalls}`);
+      // One line of counts plus the report's own notes: enough to see from the server log whether a run went well.
+      const u = report.usage;
+      logger.info(
+        `анализ ${job.reportId} „${report.seed.keyword}“ — ${Math.round((Date.now() - started) / 1000)} с, ${report.status === 'partial' ? 'непълен' : 'пълен'}; ` +
+          `Jev: ${u.jevRequests} заявки (${u.jevFailures} неуспешни); SERP: ${u.serpCalls} (${u.serpCacheHits} от кеша); ` +
+          `страници: ${u.pagesFetched} изтеглени, ${u.pagesBlocked} блокирани, ${u.pagesFailed} неуспешни`,
+      );
+      for (const note of report.warnings) logger.info(`  бележка: ${note}`);
     } catch (err) {
       const known = err instanceof PipelineError;
       if (!known) logger.error(`анализ ${job.reportId} се провали`, err);
