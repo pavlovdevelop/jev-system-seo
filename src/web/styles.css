@@ -1403,6 +1403,54 @@ main:focus {
   font-size: 12.5px;
 }
 
+/* Paper is always light: restate the light tokens so a dark-mode user does not print white text on white paper. */
+@media print {
+  :root:root {
+    color-scheme: light;
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --surface-2: #f3f2ee;
+    --surface-3: #ebeae4;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --ink-3: #898781; /* axis labels and decoration only: 3.5:1 on the surface, not for body text */
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --border: rgba(11, 11, 11, 0.1);
+    --border-strong: rgba(11, 11, 11, 0.22);
+
+    --accent: #2a78d6; /* data mark, categorical slot 1 */
+    --accent-2: #eb6834; /* categorical slot 2 */
+    --accent-button: #256abf;
+    --accent-button-hover: #1c5cab;
+    --on-accent: #ffffff;
+    --link: #184f95;
+    --track: #cde2fb; /* meter / bar track: a lighter step of the same ramp */
+    --deemph: #898781; /* de-emphasis gray for "everything else" marks */
+
+    --ord-quick: #184f95; /* ordinal ramp for opportunity labels (one hue, monotone) */
+    --ord-good: #2a78d6;
+    --ord-hard: #6da7ec;
+    --ord-skip: #898781;
+
+    --good: #0ca30c;
+    --warning: #fab219;
+    --serious: #ec835a;
+    --critical: #d03b3b;
+    --success-ink: #006300;
+
+    --tint-info: #eef4fc;
+    --tint-warn: #fdf6e3;
+    --tint-error: #fceeee;
+    --shadow: 0 1px 2px rgba(11, 11, 11, 0.04), 0 4px 16px rgba(11, 11, 11, 0.04);
+
+    --radius: 12px;
+    --radius-sm: 8px;
+    --font: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  }
+}
+
 @media print {
   .app-header,
   .demo-banner,

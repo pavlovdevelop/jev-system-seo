@@ -121,7 +121,7 @@ export function ReportPage({ id, tab }: { id: string; tab: string }): JSX.Elemen
             <a href={api.exportUrl(id, 'csv')} download><Icon name="doc" size={16} />Фрази (CSV за Excel)</a>
             <a href={api.exportUrl(id, 'md')} download><Icon name="doc" size={16} />Отчет (Markdown)</a>
             <a href={api.exportUrl(id, 'json')} download><Icon name="doc" size={16} />Всички данни (JSON)</a>
-            <button type="button" onClick={() => print()}><Icon name="doc" size={16} />Печат / PDF</button>
+            <button type="button" onClick={() => print()}><Icon name="doc" size={16} />Печат / PDF (този раздел)</button>
           </Menu>
           <button type="button" class="btn" disabled={busy} onClick={() => rerun(report.seed.keyword, report.request.ownUrl)} title="Пусни същия анализ отново с актуални данни">
             <Icon name="refresh" />Обнови
