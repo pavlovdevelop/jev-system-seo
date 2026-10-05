@@ -1,5 +1,6 @@
 import { INTENT_LABELS, PAGE_TYPE_LABELS, type KeywordSource, type OpportunityLabel, type PageType } from '../../shared/domain';
 import type { Opportunity, SerpAssessment } from '../../shared/schemas';
+import { LABEL_THRESHOLDS, MIN_RELEVANCE, OPPORTUNITY_WEIGHTS } from '../../shared/weights';
 import { keywordKey, keywordTerms } from '../nlp/bg';
 import type { KeywordVolume } from '../providers/serp/types';
 import type { KeywordJudgment } from './judge';
@@ -13,10 +14,8 @@ import { hasLocalModifier } from './lexicon';
 // measured. Missing data falls back to a neutral value instead of zero, and a keyword whose SERP was never
 // fetched is capped so it can never outrank one we actually verified. Weights live here, not in a prompt.
 
-export const OPPORTUNITY_WEIGHTS = { weakness: 0.5, commercial: 0.2, specificity: 0.15, demand: 0.15 } as const;
 export const NEUTRAL = { weakness: 0.35, demand: 0.4 } as const;
-export const LABEL_THRESHOLDS = { quickWin: 52, good: 42, hard: 28, unverifiedCap: 52 } as const;
-export const MIN_RELEVANCE = 0.5;
+export { LABEL_THRESHOLDS, MIN_RELEVANCE, OPPORTUNITY_WEIGHTS };
 
 export interface OpportunityInput {
   keyword: string;

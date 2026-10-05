@@ -174,6 +174,8 @@ describe('analysis lifecycle (demo mode)', () => {
 
     const csv = await call(`/api/reports/${reportId}/export?format=csv`);
     expect(csv.headers.get('content-type')).toContain('text/csv');
+    // an ASCII-only name (the keyword in Latin letters): non-ASCII file names are not honoured by every browser
+    expect(csv.headers.get('content-disposition')).toBe('attachment; filename="opportunities-izrabotka-na-uebsayt.csv"');
     const bytes = new Uint8Array(await csv.clone().arrayBuffer());
     expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf]); // UTF-8 BOM so Excel reads the Cyrillic correctly
     const csvText = await csv.text();

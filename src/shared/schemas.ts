@@ -341,6 +341,8 @@ export const AnalyzeRequestSchema = z.object({
   options: AnalyzeOptionsSchema.prefault({}),
 });
 export type AnalyzeRequest = z.infer<typeof AnalyzeRequestSchema>;
+/** What a client may send (every defaulted field optional); the server parses it into AnalyzeRequest. */
+export type AnalyzeRequestInput = z.input<typeof AnalyzeRequestSchema>;
 
 export const TrackedCompetitorSchema = z.object({
   domain: DomainSchema,
@@ -478,6 +480,18 @@ export const JobStateSchema = z.object({
   error: z.string().nullable(),
 });
 export type JobState = z.infer<typeof JobStateSchema>;
+
+/** One row of the cross-report competitor overview. */
+export interface CompetitorOverviewRow {
+  domain: string;
+  tracked: boolean;
+  own: boolean;
+  reports: number;
+  keywordsSeen: number;
+  avgShareOfVoice: number;
+  bestPosition: number | null;
+  lastSeen: string;
+}
 
 export const StatusResponseSchema = z.object({
   version: z.string(),

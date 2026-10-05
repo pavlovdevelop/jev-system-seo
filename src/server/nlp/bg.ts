@@ -166,6 +166,26 @@ export function looseLatin(text: string): string {
     .replace(/(.)\1+/g, '$1');
 }
 
+// ───────────────────────── readable Latin form (file names) ─────────────────────────
+
+/** The official Bulgarian "Streamlined System" (Law on the Transliteration, 2009). */
+const STREAMLINED: Readonly<Record<string, string>> = {
+  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n',
+  о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'h', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'sht', ъ: 'a', ь: 'y',
+  ю: 'yu', я: 'ya',
+};
+
+/** "Изработка на уебсайт" → "izrabotka-na-uebsayt": ASCII only, so it is safe in a file name or a header. */
+export function fileSlug(text: string, max = 40): string {
+  let latin = '';
+  for (const ch of text.toLowerCase()) latin += STREAMLINED[ch] ?? ch;
+  return latin
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+/, '')
+    .slice(0, max)
+    .replace(/-+$/, '');
+}
+
 /** True when at least half of the keyword's (long enough) terms appear in the URL path or host. */
 export function slugMatchesKeyword(url: string, keyword: string): boolean {
   let haystack: string;

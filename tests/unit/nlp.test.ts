@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   containsKeyword,
   coverage,
+  fileSlug,
   keywordKey,
   keywordTerms,
   looksLikeQuestion,
@@ -180,5 +181,20 @@ describe('heading clustering', () => {
 describe('terms()', () => {
   it('removes stopwords and numbers', () => {
     expect(terms('Изработка на сайт от 2024 година')).toEqual(['изработк', 'сайт']);
+  });
+});
+
+describe('fileSlug', () => {
+  it('writes Bulgarian in Latin letters following the official streamlined system', () => {
+    expect(fileSlug('Изработка на уебсайт')).toBe('izrabotka-na-uebsayt');
+    expect(fileSlug('цена на уеб дизайн в София')).toBe('tsena-na-ueb-dizayn-v-sofiya');
+    expect(fileSlug('щастие, шоколад и чай')).toBe('shtastie-shokolad-i-chay');
+  });
+
+  it('keeps Latin text and digits, collapses everything else and never ends with a dash', () => {
+    expect(fileSlug('SEO оптимизация 2026!!!')).toBe('seo-optimizatsiya-2026');
+    expect(fileSlug('  --  ')).toBe('');
+    expect(fileSlug('a'.repeat(100), 10)).toBe('aaaaaaaaaa');
+    expect(fileSlug('изработка на уебсайт за малък бизнес', 20)).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
   });
 });

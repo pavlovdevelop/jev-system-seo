@@ -1,4 +1,5 @@
 import { MARKETS } from '../../shared/markets';
+import { bgCount } from '../../shared/plural';
 import {
   ReportSchema,
   type AnalyzeRequest,
@@ -257,7 +258,7 @@ async function run(
     const budgetLeft = Math.max(0, deps.meter.limits.maxSerpCalls - deps.meter.serpCalls);
     picked = pickForSerp(screened, deps.serp ? Math.min(maxPick, budgetLeft) : maxPick);
     if (deps.serp && picked.length < Math.min(maxPick, screened.filter((s) => s.judgment.relevance >= 0.5).length)) {
-      warnings.push(`Лимитът от ${deps.meter.limits.maxSerpCalls} SERP заявки ограничи броя на проверените фрази до ${picked.length}.`);
+      warnings.push(`Лимитът от ${deps.meter.limits.maxSerpCalls} SERP заявки ограничи проверените фрази до ${picked.length}.`);
     }
   }
   check();
@@ -296,7 +297,7 @@ async function run(
       }
       emit('candidates', 62 + Math.round((23 * ++done) / picked.length), `Проверени фрази: ${done} от ${picked.length}`);
     });
-    if (serpFailures > 0) warnings.push(`За ${serpFailures} фрази SERP заявката не успя и те са пропуснати.`);
+    if (serpFailures > 0) warnings.push(serpFailures === 1 ? 'За 1 фраза SERP заявката не успя и тя е пропусната.' : `За ${serpFailures} фрази SERP заявката не успя и те са пропуснати.`);
   }
   const observed = slots.filter((s): s is CandidateObservation => s !== null);
   check();
@@ -418,13 +419,13 @@ async function run(
   emit('save', 96, 'Подготвям отчета…');
   const blocked = crawled.filter((c) => c.fetch.status === 'blocked_robots').length;
   const failed = crawled.filter((c) => !['ok', 'blocked_robots'].includes(c.fetch.status)).length;
-  if (blocked > 0) warnings.push(`${blocked} страници са защитени от robots.txt и не са изтеглени — оценени са само по заглавие и описание в резултатите.`);
-  if (failed > 0) warnings.push(`${failed} страници не успяха да се изтеглят (блокиране на ботове, грешка или изтекло време) — оценени са само по заглавие и описание.`);
+  if (blocked > 0) warnings.push(`${bgCount(blocked, 'страница е защитена', 'страници са защитени')} от robots.txt и не ${blocked === 1 ? 'е изтеглена' : 'са изтеглени'} — ${blocked === 1 ? 'оценена е' : 'оценени са'} само по заглавие и описание в резултатите.`);
+  if (failed > 0) warnings.push(`${bgCount(failed, 'страница не успя', 'страници не успяха')} ${failed === 1 ? 'да се изтегли' : 'да се изтеглят'} (блокиране на ботове, грешка или изтекло време) — ${failed === 1 ? 'оценена е' : 'оценени са'} само по заглавие и описание.`);
   const partialJudgments = analyses.filter((a) => a.judgmentStatus !== 'complete' && a.fetch.status === 'ok').length;
-  if (partialJudgments > 0) warnings.push(`За ${partialJudgments} страници Jev не върна всички оценки.`);
+  if (partialJudgments > 0) warnings.push(`За ${bgCount(partialJudgments, 'страница', 'страници')} Jev не върна всички оценки.`);
   const lowConfidence = analyses.filter((a) => a.judgments.pageType && a.judgments.pageType.confidence < 0.3).length;
   if (lowConfidence > 0 && request.market === 'bg') {
-    warnings.push(`Jev е най-точен на английски; при ${lowConfidence} български страници типът е определен с ниска сигурност — виж индикаторите за сигурност.`);
+    warnings.push(`Jev е най-точен на английски; при ${bgCount(lowConfidence, 'българска страница', 'български страници')} типът е определен с ниска сигурност — виж индикаторите за сигурност.`);
   }
 
   const jevAfter = deps.jev.stats();

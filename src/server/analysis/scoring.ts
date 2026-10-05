@@ -1,4 +1,5 @@
 import type { CompositeScores, PageJudgments, PageMetrics } from '../../shared/schemas';
+import { COMPOSITE_WEIGHTS } from '../../shared/weights';
 
 // Composite scoring (docs.typesafe.ai/patterns/composite-scoring): break a judgment into atomic
 // signals, normalise each to 0..1, and combine them with weights that live HERE, in code, where they can
@@ -23,12 +24,7 @@ export function weighted(parts: readonly Part[]): number | null {
 /** Words the average top result has — what "long enough" means for this keyword. */
 export const DEFAULT_TARGET_WORDS = 1200;
 
-export const WEIGHTS = {
-  content: { depth: 0.35, need: 0.25, specific: 0.15, length: 0.25 },
-  trust: { portfolio: 0.3, reviews: 0.3, identity: 0.25, contact: 0.15 },
-  conversion: { cta: 0.4, prices: 0.25, form: 0.2, contact: 0.15 },
-  overall: { content: 0.4, optimization: 0.25, trust: 0.2, conversion: 0.15 },
-} as const;
+export const WEIGHTS = COMPOSITE_WEIGHTS;
 
 /** On-page optimisation checklist, scored 0..1 from measured facts only (no Jev involved). */
 export function optimizationScore(m: PageMetrics): number {

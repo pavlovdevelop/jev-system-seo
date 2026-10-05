@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import {
   ReportSchema,
   SettingsSchema,
+  type CompetitorOverviewRow,
   type Report,
   type ReportSummary,
   type Settings,
@@ -26,17 +27,6 @@ export interface IndexDigest {
 
 export interface IndexEntry extends ReportSummary {
   digest: IndexDigest[];
-}
-
-export interface CompetitorOverviewRow {
-  domain: string;
-  tracked: boolean;
-  own: boolean;
-  reports: number;
-  keywordsSeen: number;
-  avgShareOfVoice: number;
-  bestPosition: number | null;
-  lastSeen: string;
 }
 
 export const ID_PATTERN = /^[rj]_[a-z0-9]{6,40}$/;

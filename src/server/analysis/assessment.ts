@@ -1,5 +1,6 @@
 import type { Intent, PageType } from '../../shared/domain';
 import type { PageTypeAnswer, SerpAssessment, SerpResultStrength } from '../../shared/schemas';
+import { EASY_AT, MEDIUM_AT, STRENGTH_WEIGHTS } from '../../shared/weights';
 
 // How beatable is a results page for a newcomer who writes good content?
 //
@@ -49,11 +50,8 @@ const FIT_INFORMATIONAL: Record<PageType, number> = {
   other: 0.3,
 };
 
-export const STRENGTH_WEIGHTS = { typeFit: 0.3, dedicated: 0.25, titleMatch: 0.2, depth: 0.15, dominance: 0.1 } as const;
 export const POSITION_WEIGHTS = [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.25, 0.2] as const;
-/** Weakness at or above this → "easy" SERP; at or above MEDIUM_AT → "medium"; else "hard". */
-export const EASY_AT = 0.5;
-export const MEDIUM_AT = 0.38;
+export { EASY_AT, MEDIUM_AT, STRENGTH_WEIGHTS };
 
 const positionWeight = (position: number): number => POSITION_WEIGHTS[position - 1] ?? 0.1;
 

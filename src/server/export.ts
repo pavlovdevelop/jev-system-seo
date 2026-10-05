@@ -3,6 +3,11 @@ import type { Report } from '../shared/schemas';
 
 // Plain-text exports of a report. CSV is meant for spreadsheets, Markdown for pasting into a doc or a ticket.
 
+/** Content-Disposition for a download. File names are ASCII-only (see `fileSlug`): non-ASCII names are not honoured everywhere. */
+export function attachment(name: string): string {
+  return `attachment; filename="${name.replace(/[^A-Za-z0-9._-]/g, '_')}"`;
+}
+
 /** Spreadsheet apps execute cells that start with = + - @ as formulas; competitor-controlled text must not. */
 export function csvCell(value: string | number | null | undefined): string {
   let s = value === null || value === undefined ? '' : String(value);

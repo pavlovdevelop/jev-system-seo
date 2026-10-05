@@ -8,8 +8,9 @@ import { secureHeaders } from 'hono/secure-headers';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
 import { AnalyzeRequestSchema, DomainSchema, SettingsPatchSchema } from '../shared/schemas';
-import { opportunitiesCsv, reportMarkdown } from './export';
+import { attachment, opportunitiesCsv, reportMarkdown } from './export';
 import type { JobManager } from './jobs';
+import { fileSlug } from './nlp/bg';
 import { PipelineError } from './pipeline/analyze';
 import { DEMO_DEFAULTS, type Runtime } from './runtime';
 import { ID_PATTERN, type Store } from './store';
@@ -220,15 +221,15 @@ export function createApp(deps: AppDeps): Hono {
     const report = await store.getReport(c.req.param('id'));
     if (!report) return fail(c, 404, 'not_found', 'Отчетът не е намерен.');
     const format = c.req.query('format') ?? 'json';
-    const slug = report.seed.keyword.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 40) || 'report';
+    const slug = fileSlug(report.seed.keyword) || report.id;
     if (format === 'csv') {
-      return new Response(opportunitiesCsv(report), { headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="opportunities-${encodeURIComponent(slug)}.csv"` } });
+      return new Response(opportunitiesCsv(report), { headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': attachment(`opportunities-${slug}.csv`) } });
     }
     if (format === 'md') {
-      return new Response(reportMarkdown(report), { headers: { 'content-type': 'text/markdown; charset=utf-8', 'content-disposition': `attachment; filename="report-${encodeURIComponent(slug)}.md"` } });
+      return new Response(reportMarkdown(report), { headers: { 'content-type': 'text/markdown; charset=utf-8', 'content-disposition': attachment(`report-${slug}.md`) } });
     }
     if (format === 'json') {
-      return new Response(JSON.stringify(report, null, 2), { headers: { 'content-type': 'application/json; charset=utf-8', 'content-disposition': `attachment; filename="report-${encodeURIComponent(slug)}.json"` } });
+      return new Response(JSON.stringify(report, null, 2), { headers: { 'content-type': 'application/json; charset=utf-8', 'content-disposition': attachment(`report-${slug}.json`) } });
     }
     return fail(c, 400, 'invalid_format', 'Форматът трябва да е json, csv или md.');
   });
