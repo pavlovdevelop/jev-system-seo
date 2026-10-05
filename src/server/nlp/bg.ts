@@ -6,7 +6,7 @@ import { QUESTION_WORDS, STOPWORDS } from './stopwords';
 // text. It is a heuristic stemmer, not a linguistic one.
 
 const WORD_RE = /[\p{L}\p{N}]+/gu;
-const CYRILLIC_WORD = /^[Ѐ-ӿ]+$/;
+const CYRILLIC_WORD = /^\p{Script=Cyrillic}+$/u;
 const LATIN_WORD = /^[a-z]+$/;
 const NUMERIC = /^\p{N}+$/u;
 
@@ -16,7 +16,7 @@ export function normalizeText(text: string): string {
     text
       .normalize('NFKC')
       .toLowerCase()
-      .replace(/[‐-―−]/g, '-')
+      .replace(/\p{Pd}/gu, '-')
       // "уеб сайт", "веб-сайт", "уебсайтове", "web site", "websites" → "сайт…"
       .replace(/(?<![\p{L}])(?:уеб|веб|web)[\s-]*(?:сайт|site)s?/gu, 'сайт')
   );

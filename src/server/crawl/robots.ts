@@ -11,12 +11,14 @@ export interface RobotsGroup {
   rules: RobotsRule[];
 }
 
+const stripBom = (text: string): string => (text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
+
 export function parseRobots(text: string): RobotsGroup[] {
   const groups: RobotsGroup[] = [];
   let current: RobotsGroup | null = null;
   let lastWasAgent = false;
 
-  for (const rawLine of text.replace(/^﻿/, '').split(/\r?\n/)) {
+  for (const rawLine of stripBom(text).split(/\r?\n/)) {
     const line = rawLine.replace(/#.*$/, '').trim();
     if (!line) continue;
     const colon = line.indexOf(':');

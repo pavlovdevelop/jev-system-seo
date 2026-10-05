@@ -40,7 +40,7 @@ describe('robots.txt', () => {
   });
 
   it('handles stacked user-agent lines, comments, BOM and CRLF', () => {
-    const txt = '﻿# comment\r\nUser-agent: googlebot\r\nUser-agent: jevseoradar # us\r\nDisallow: /x\r\nSitemap: https://e.com/s.xml\r\n';
+    const txt = `${String.fromCharCode(0xfeff)}# comment\r\nUser-agent: googlebot\r\nUser-agent: jevseoradar # us\r\nDisallow: /x\r\nSitemap: https://e.com/s.xml\r\n`;
     expect(allowed(txt, '/x')).toBe(false);
     expect(allowed(txt, '/y')).toBe(true);
   });
