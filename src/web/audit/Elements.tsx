@@ -3,7 +3,8 @@ import { useMemo, useState } from 'preact/hooks';
 import type { ElementVerdict, SiteAuditReport, SitePage } from '../../shared/audit';
 import { Breakable, Headline, Verdict } from '../components/Pips';
 import { Confidence, Empty } from '../components/ui';
-import { ELEMENT_LABELS, elementCounts, filterElements, pathOf, SEO_ELEMENTS, sortElements, type ElementFilter, type ElementSort } from '../lib/audit';
+import { bgCount } from '../../shared/plural';
+import { bgNoun, ELEMENT_LABELS, elementCounts, filterElements, pathOf, SEO_ELEMENTS, sortElements, type ElementFilter, type ElementSort } from '../lib/audit';
 import { int } from '../lib/format';
 
 // Panel 01: every SEO element of every page, judged one by one — what it says now, what to change it to and who wrote that.
@@ -129,8 +130,8 @@ export function ElementsTab({ audit }: { audit: SiteAuditReport }): JSX.Element 
 
   return (
     <div class="stack-lg">
-      <Headline value={int(audit.figures.elementsToChange)} unit="елемента за промяна">
-        от {int(audit.figures.elementsTotal)} оценени на {int(audit.site.pagesAudited)} страници — всеки елемент е оценен поотделно, с предложение и кой го е написал.
+      <Headline value={int(audit.figures.elementsToChange)} unit={`${bgNoun(audit.figures.elementsToChange, 'елемент', 'елемента')} за промяна`}>
+        от {bgCount(audit.figures.elementsTotal, 'оценен елемент', 'оценени елемента')} на {bgCount(audit.site.pagesAudited, 'страница', 'страници')} — всеки е оценен поотделно, с предложение и кой го е написал.
       </Headline>
 
       <section>

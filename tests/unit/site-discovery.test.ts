@@ -101,6 +101,18 @@ describe('parseSitemap', () => {
     expect(parseSitemap(xml).urls).toEqual([{ loc: 'https://example.com/p', lastmod: null }]);
   });
 
+  it('does not mistake an extension element for the page, whatever the order inside <url>', () => {
+    const xml = `<urlset xmlns:image="i" xmlns:video="v">
+      <url>
+        <image:image><image:loc>https://example.com/img.jpg</image:loc></image:image>
+        <video:video><video:content_loc>https://example.com/v.mp4</video:content_loc><video:player_loc>https://example.com/player</video:player_loc></video:video>
+        <loc>https://example.com/page</loc><lastmod>2024-01-01</lastmod>
+      </url>
+      <url><image:image><image:loc>https://example.com/only-an-image.jpg</image:loc></image:image></url>
+    </urlset>`;
+    expect(parseSitemap(xml).urls).toEqual([{ loc: 'https://example.com/page', lastmod: '2024-01-01' }]);
+  });
+
   it('reads a sitemap index', () => {
     const parsed = parseSitemap(index('https://example.com/post-sitemap.xml', 'https://example.com/page-sitemap.xml.gz'));
     expect(parsed).toEqual({ kind: 'index', urls: [], sitemaps: ['https://example.com/post-sitemap.xml', 'https://example.com/page-sitemap.xml.gz'] });
@@ -157,6 +169,11 @@ describe('parseSitemap', () => {
       const parsed = parseSitemap(urlset(exact, `${exact}b`, 'https://example.com/after'));
       expect(parsed.urls.map((u) => u.loc)).toEqual([exact, 'https://example.com/after']);
     });
+  });
+
+  it('stops after three million tags: a legitimate file of 5 MB has far fewer', () => {
+    expect(parseSitemap(`<urlset>${'<a/>'.repeat(3_100_000)}<url><loc>https://example.com/late</loc></url></urlset>`).urls).toEqual([]);
+    expect(parseSitemap(`<urlset><url><loc>https://example.com/early</loc></url>${'<a/>'.repeat(1_000)}</urlset>`).urls).toHaveLength(1);
   });
 
   describe('hostile input stays linear', () => {
@@ -325,6 +342,31 @@ describe('discoverSite — sitemaps', () => {
       const order = ['robots.txt', 'sitemap.xml', 'sitemap_index.xml', 'wp-sitemap.xml'];
       expect(log.texts, file).toEqual(order.slice(0, order.indexOf(file) + 1).map((f) => `https://example.com/${f}`));
     }
+  });
+
+  it('reads a sitemap once: not again as one of the usual places, and not again under the address a redirect led to', async () => {
+    const named = discover({
+      texts: {
+        'https://example.com/robots.txt': 'Sitemap: https://example.com/sitemap.xml',
+        'https://example.com/sitemap.xml': urlset(), // named by robots.txt, and empty
+        'https://example.com/wp-sitemap.xml': urlset('https://example.com/real'),
+      },
+    });
+    expect((await named.result).urls).toEqual(['https://example.com/', 'https://example.com/real']);
+    expect(named.log.texts).toEqual([
+      'https://example.com/robots.txt',
+      'https://example.com/sitemap.xml',
+      'https://example.com/sitemap_index.xml',
+      'https://example.com/wp-sitemap.xml',
+    ]);
+    const redirected = discover({
+      texts: {
+        'https://example.com/sitemap.xml': { status: 'ok', httpStatus: 200, text: urlset(), finalUrl: 'https://example.com/sitemap_index.xml', error: null }, // a redirect to the index, which is empty
+        'https://example.com/wp-sitemap.xml': urlset('https://example.com/real'),
+      },
+    });
+    await redirected.result;
+    expect(redirected.log.texts).toEqual(['https://example.com/robots.txt', 'https://example.com/sitemap.xml', 'https://example.com/wp-sitemap.xml']);
   });
 
   it('goes on to the usual places when what robots.txt names is empty or missing', async () => {
@@ -657,6 +699,12 @@ describe('discoverSite — links of the homepage', () => {
     for (const absent of ['in-script', 'in-comment', 'link-tag', 'form-action', 'img.png', 'area-link', 'a.pdf', 'other.com']) expect(d.urls.join(' '), absent).not.toContain(absent);
     expect(d.notes).toEqual(['Не е намерен sitemap — страниците са открити чрез връзките от началната страница, затова списъкът може да е непълен.']);
     expect(progress.some((m) => m.startsWith('Обхождам'))).toBe(true);
+  });
+
+  it('lists the homepage once when "/" leads somewhere else (the logo links to "/"), and keeps it first', async () => {
+    const d = await run({ pages: { 'https://example.com/': { finalUrl: 'https://example.com/bg/', html: page('/', '/bg/', '/about', 'https://blog.example.com/') } } });
+    expect(d.urls).toEqual(['https://example.com/bg/', 'https://blog.example.com/', 'https://example.com/about']);
+    expect(d.found).toBe(3);
   });
 
   it('honours <base href> like a browser, and ignores links inside <template>', async () => {

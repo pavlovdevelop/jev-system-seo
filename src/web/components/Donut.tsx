@@ -9,10 +9,12 @@ import { clamp01, pct } from '../lib/format';
 
 export type DonutTone = 'accent' | 'own' | 'muted';
 
-const TONES: Record<DonutTone, { arc: string; track: string }> = {
-  accent: { arc: 'var(--accent)', track: 'var(--track)' },
-  own: { arc: 'var(--accent-2)', track: 'color-mix(in srgb, var(--accent-2) 22%, var(--surface))' },
-  muted: { arc: 'var(--deemph)', track: 'var(--surface-3)' },
+// `band` is how much of the colour the interval arc keeps: lighter than the ring, yet still 3:1 against the surface
+// (the orange and the gray of the other tones are already close to that limit, so their arc stays as it is).
+const TONES: Record<DonutTone, { arc: string; track: string; band: number }> = {
+  accent: { arc: 'var(--accent)', track: 'var(--track)', band: 0.8 },
+  own: { arc: 'var(--accent-2)', track: 'color-mix(in srgb, var(--accent-2) 22%, var(--surface))', band: 1 },
+  muted: { arc: 'var(--deemph)', track: 'var(--surface-3)', band: 1 },
 };
 
 const CENTER = 50;
@@ -44,7 +46,7 @@ export function Donut({ value, low = null, high = null, label, size = 112, tone 
   const text = known ? pct(v) : '—';
   const alt = known ? `${label}: ${pct(v)}${hasInterval ? `, 95% интервал от ${pct(low)} до ${pct(high)}` : ''}` : `${label}: няма данни`;
   // four characters ("100%") need a smaller figure to stay inside the ring
-  const fontSize = text.length >= 4 ? 19 : 23;
+  const fontSize = text.length >= 4 ? 17 : 23;
 
   return (
     <svg class="geo-donut" viewBox="0 0 100 100" width={size} height={size} role="img" aria-label={alt} style={{ maxWidth: '100%', height: 'auto', flex: 'none' }}>
@@ -60,7 +62,7 @@ export function Donut({ value, low = null, high = null, label, size = 112, tone 
           stroke-dasharray={`${band.dash} ${band.gap}`}
           stroke-dashoffset={band.offset}
           transform={`rotate(-90 ${CENTER} ${CENTER})`}
-          style={{ stroke: colors.arc, opacity: 0.55 }}
+          style={{ stroke: colors.arc, opacity: colors.band }}
         />
       ) : null}
       {known && ring.dash > 0 ? (

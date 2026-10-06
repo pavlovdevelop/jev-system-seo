@@ -3,7 +3,9 @@ import type { EngineRun, SiteAuditReport } from '../../shared/audit';
 import { ENGINE_LABELS } from '../../shared/domain';
 import { Breakable, Verdict } from '../components/Pips';
 import { Callout, Icon, Meter } from '../components/ui';
-import { duration, intervalText, noPageShare, pathOf, SITE_SOURCE_TEXT, topPlan } from '../lib/audit';
+import { Method } from './Method';
+import { bgCount } from '../../shared/plural';
+import { bgNoun, duration, intervalText, noPageShare, pathOf, SITE_SOURCE_TEXT, topPlan } from '../lib/audit';
 import { clamp01, int, pct, usd } from '../lib/format';
 
 // The first screen of an audit: four headline numbers (one for each panel), what the AI engines really say about the
@@ -43,9 +45,9 @@ function Panels({ audit }: { audit: SiteAuditReport }): JSX.Element {
         no="01"
         title="Всеки SEO елемент, оценен поотделно"
         value={int(f.elementsToChange)}
-        unit="елемента за промяна"
+        unit={`${bgNoun(f.elementsToChange, 'елемент', 'елемента')} за промяна`}
         bar={bar(share(f.elementsToChange, f.elementsTotal), 'Дял на елементите за промяна')}
-        sub={f.elementsTotal > 0 ? `от ${int(f.elementsTotal)} оценени на ${int(audit.site.pagesAudited)} страници` : 'няма оценени елементи'}
+        sub={f.elementsTotal > 0 ? `от ${bgCount(f.elementsTotal, 'оценен елемент', 'оценени елемента')} на ${bgCount(audit.site.pagesAudited, 'страница', 'страници')}` : 'няма оценени елементи'}
         go="Към елементите"
       />
       <Panel
@@ -53,9 +55,9 @@ function Panels({ audit }: { audit: SiteAuditReport }): JSX.Element {
         no="02"
         title="Страници и техники за копиране от конкурентите"
         value={int(f.pagesToSteal)}
-        unit="страници за копиране"
+        unit={`${bgNoun(f.pagesToSteal, 'страница', 'страници')} за копиране`}
         bar={bar(share(f.pagesToSteal, f.competitorPagesTotal), 'Дял на страниците за копиране')}
-        sub={f.competitorPagesTotal > 0 ? `от ${int(f.competitorPagesTotal)} прочетени конкурентни страници` : 'няма прочетени конкурентни страници'}
+        sub={f.competitorPagesTotal > 0 ? `от ${bgCount(f.competitorPagesTotal, 'прочетена конкурентна страница', 'прочетени конкурентни страници')}` : 'няма прочетени конкурентни страници'}
         go="Към конкурентите"
       />
       <Panel
@@ -65,7 +67,7 @@ function Panels({ audit }: { audit: SiteAuditReport }): JSX.Element {
         value={pct(noPageShare(f))}
         unit="от въпросите нямат страница"
         bar={bar(noPageShare(f), 'Дял на въпросите без страница')}
-        sub={f.questionsTotal > 0 ? `${int(f.questionsNoPage)} от ${int(f.questionsTotal)} въпроса` : 'няма проверени въпроси'}
+        sub={f.questionsTotal > 0 ? `${int(f.questionsNoPage)} от ${bgCount(f.questionsTotal, 'въпрос', 'въпроса')}` : 'няма проверени въпроси'}
         go="Към въпросите"
       />
       <Panel
@@ -73,7 +75,7 @@ function Panels({ audit }: { audit: SiteAuditReport }): JSX.Element {
         no="04"
         title="Колко вероятно е всяка страница да бъде цитирана?"
         value={pct(now)}
-        unit="шанс за цитиране"
+        unit="индекс на цитиране"
         bar={
           now === null ? null : (
             <span class="au-ba" role="img" aria-label={`Шанс за цитиране: сега ${pct(now)}${after !== null ? `, след поправките ${pct(after)}` : ''}`}>
@@ -239,7 +241,7 @@ function SiteFacts({ audit }: { audit: SiteAuditReport }): JSX.Element {
         <dt>Домейн</dt>
         <dd>{s.domain}</dd>
         <dt>Страници</dt>
-        <dd>{int(s.pagesAudited)} одитирани от {int(s.pagesFound)} открити</dd>
+        <dd>одитирани {int(s.pagesAudited)} от {int(s.pagesFound)} открити</dd>
         <dt>Откъде са</dt>
         <dd>{SITE_SOURCE_TEXT[s.source]}</dd>
         <dt>Режим</dt>
@@ -282,6 +284,7 @@ export function Overview({ audit }: { audit: SiteAuditReport }): JSX.Element {
         <Cost audit={audit} />
         <SiteFacts audit={audit} />
       </div>
+      <Method />
     </div>
   );
 }

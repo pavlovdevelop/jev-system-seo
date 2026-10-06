@@ -308,8 +308,9 @@ export function arcDash(from: number, to: number, r: number): { dash: number; ga
 
 // Text in a plan comes from the web (page titles) and from language models (questions, steps): it must stay text when
 // it is pasted into a document or a ticket — no links, no images, no raw HTML, no headings, no table breaks, no hidden
-// characters. These are the rules of src/server/export.ts (mdText/mdUrl), plus one more: a bare web address or an
-// e-mail in the text becomes a link in GitHub-flavoured renderers without any bracket, so it is shown as inert code.
+// characters. These are the rules of src/server/export.ts (mdText/mdUrl), plus one more: a bare web address, an e-mail
+// or an @name in the text becomes a link (or a notification) in GitHub-flavoured renderers without any bracket, so it
+// is shown as inert code.
 
 /** A URL as inert text: inside a code span nothing is a link, and a backtick cannot end the span. */
 export function mdUrl(url: string): string {
@@ -317,8 +318,8 @@ export function mdUrl(url: string): string {
   return clean ? `\`${clean}\`` : '—';
 }
 
-// scheme://…, www.… and name@host.tld — what renderers turn into links on their own
-const AUTOLINK = /(?:\b[a-z][a-z0-9+.-]{1,15}:\/\/|\bwww\.)[^\s<>"'`]+|[^\s<>"'`@()[\]\\]+@[^\s<>"'`@()[\]\\]+\.[a-z]{2,}/giu;
+// scheme://…, www.…, name@host.tld and @name — what renderers turn into links or mentions on their own
+const AUTOLINK = /(?:\b[a-z][a-z0-9+.-]{1,15}:\/\/|\bwww\.)[^\s<>"'`]+|[^\s<>"'`@()[\]\\]+@[^\s<>"'`@()[\]\\]+\.[a-z]{2,}|(?<![\p{L}\p{N}_@.+-])@[\p{L}\p{N}_][\p{L}\p{N}_-]*/giu;
 const TRAILING_PUNCTUATION = /[.,;:!?)\]}]+$/u;
 
 const mdEscape = (text: string): string => text.replace(/[\\`*_[\]<>#|]/g, '\\$&');

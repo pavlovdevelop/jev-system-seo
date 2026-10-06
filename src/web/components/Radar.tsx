@@ -30,7 +30,9 @@ const LINE = 13;
 
 const valueText = (v: number | null): string => (v === null ? 'н/д' : pct(v));
 
-export function Radar({ axes, size = 260, title }: RadarProps): JSX.Element {
+export function Radar({ axes: given, size = 260, title }: RadarProps): JSX.Element {
+  // a value that is not a finite number cannot be drawn: it is an axis without a value, never a silent zero
+  const axes = given.map((a) => ({ ...a, value: a.value !== null && Number.isFinite(a.value) ? clamp01(a.value) : null }));
   const n = axes.length;
   const alt = `${title}: ${axes.map((a) => `${a.label} — ${a.value === null ? 'не може да се прецени' : pct(a.value)}`).join('; ')}`;
   const table = (
@@ -44,8 +46,8 @@ export function Radar({ axes, size = 260, title }: RadarProps): JSX.Element {
           </tr>
         </thead>
         <tbody>
-          {axes.map((a) => (
-            <tr key={a.label}>
+          {axes.map((a, i) => (
+            <tr key={`${i}-${a.label}`}>
               <th scope="row">{a.label}</th>
               <td>{a.value === null ? 'не може да се прецени' : pct(a.value)}</td>
             </tr>
@@ -70,7 +72,7 @@ export function Radar({ axes, size = 260, title }: RadarProps): JSX.Element {
   const H = Math.round(R * 2 + 2 * (LINE * 2 + 16));
   const cx = W / 2;
   const cy = H / 2;
-  const values = axes.map((a) => (a.value === null ? null : clamp01(a.value)));
+  const values = axes.map((a) => a.value);
   const at = (i: number, v: number) => radarPoint(i, n, R * v, cx, cy);
   const path = (indices: readonly number[]): string => indices.map((i) => at(i, values[i] ?? 0)).map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
   const runs = radarRuns(values);
@@ -83,7 +85,7 @@ export function Radar({ axes, size = 260, title }: RadarProps): JSX.Element {
         ))}
         {axes.map((a, i) => {
           const end = at(i, 1);
-          return <line key={a.label} class="geo-radar-spoke" x1={cx} y1={cy} x2={end.x} y2={end.y} stroke-width="1" style={{ stroke: 'var(--grid)' }} />;
+          return <line key={`${i}-${a.label}`} class="geo-radar-spoke" x1={cx} y1={cy} x2={end.x} y2={end.y} stroke-width="1" style={{ stroke: 'var(--grid)' }} />;
         })}
 
         {runs.map((run) =>
@@ -102,14 +104,14 @@ export function Radar({ axes, size = 260, title }: RadarProps): JSX.Element {
           if (v === null) {
             const rim = at(i, 1);
             return (
-              <circle key={a.label} class="geo-radar-gap" cx={rim.x} cy={rim.y} r="4" stroke-width="1.5" style={{ fill: 'var(--surface)', stroke: 'var(--ink-3)' }}>
+              <circle key={`${i}-${a.label}`} class="geo-radar-gap" cx={rim.x} cy={rim.y} r="4" stroke-width="1.5" style={{ fill: 'var(--surface)', stroke: 'var(--ink-3)' }}>
                 <title>{`${a.label}: не може да се прецени`}</title>
               </circle>
             );
           }
           const p = at(i, v);
           return (
-            <circle key={a.label} class="geo-radar-dot" cx={p.x} cy={p.y} r="4" stroke-width="2" style={{ fill: 'var(--accent)', stroke: 'var(--surface)' }}>
+            <circle key={`${i}-${a.label}`} class="geo-radar-dot" cx={p.x} cy={p.y} r="4" stroke-width="2" style={{ fill: 'var(--accent)', stroke: 'var(--surface)' }}>
               <title>{`${a.label}: ${pct(v)}`}</title>
             </circle>
           );
@@ -124,7 +126,7 @@ export function Radar({ axes, size = 260, title }: RadarProps): JSX.Element {
           // the two lines (name, value) sit above the label point at the top, below it at the bottom, centred beside it
           const y1 = dy < -0.75 ? out.y - LINE : dy > 0.75 ? out.y + 10 : out.y - 3;
           return (
-            <text key={a.label} x={out.x} text-anchor={anchor} font-size={LABEL_SIZE}>
+            <text key={`${i}-${a.label}`} x={out.x} text-anchor={anchor} font-size={LABEL_SIZE}>
               <tspan x={out.x} y={y1} style={{ fill: 'var(--ink-2)' }}>
                 {a.short ?? a.label}
               </tspan>

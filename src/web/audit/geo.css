@@ -117,6 +117,7 @@
   .geo-engine {
     display: grid;
     grid-row: span 6;
+    grid-template-columns: minmax(0, 1fr); /* one column that content cannot widen past the card */
     grid-template-rows: subgrid;
     margin-bottom: 16px;
   }
@@ -151,6 +152,7 @@
 }
 .geo-engine-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px 12px;
@@ -162,7 +164,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  flex: 1 1 0;
+  flex: 1 1 110px; /* the name needs this much beside the chip; on a narrower card the chip goes under it */
   min-width: 0;
 }
 .geo-engine-name h3 {
@@ -209,7 +211,7 @@
   vertical-align: middle;
   border-radius: 2px;
   background: var(--accent);
-  opacity: 0.55;
+  opacity: 0.8;
 }
 
 .geo-stats {

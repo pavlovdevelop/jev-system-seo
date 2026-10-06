@@ -1453,7 +1453,7 @@ main:focus {
   flex: none;
 }
 .verdict-ok svg {
-  color: var(--good);
+  color: var(--success-ink);
 }
 .verdict-act {
   background: var(--tint-info);
@@ -1727,6 +1727,11 @@ main:focus {
 .au-panel:hover {
   background: var(--surface-2);
 }
+/* the global focus ring squares every corner: a card keeps its own radius */
+.au-panel:focus-visible,
+.au-promo:focus-visible {
+  border-radius: var(--radius);
+}
 .au-panel:hover .au-panel-go {
   text-decoration: underline;
 }
@@ -1855,7 +1860,7 @@ main:focus {
   top: 0;
   bottom: 0;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 40%, var(--surface-3));
+  background: color-mix(in srgb, var(--accent) 55%, var(--surface-3));
 }
 .au-range-mark {
   position: absolute;
@@ -1951,7 +1956,7 @@ main:focus {
 .au-num-grid .label {
   display: flex;
   align-items: flex-end;
-  min-height: 2.7em;
+  min-height: 3em;
 }
 @media (max-width: 900px) {
   .au-num-grid {
@@ -2028,6 +2033,10 @@ main:focus {
   align-items: center;
   min-height: 28px;
 }
+.au-lines strong.ink {
+  color: var(--ink);
+  font-weight: 650;
+}
 
 @media print {
   .au-panel,
@@ -2035,6 +2044,17 @@ main:focus {
   .au-estimate,
   .au-table tr {
     break-inside: avoid;
+  }
+  /* paper has no horizontal scroll: the audit tables shrink to the page instead of being cut off */
+  .table-wrap:has(.au-table) {
+    overflow: visible;
+  }
+  .au-fixed {
+    min-width: 0;
+  }
+  .au-table td,
+  .au-table th {
+    padding: 6px 6px;
   }
 }
 

@@ -46,11 +46,13 @@ export function createDemoEngines(input: DemoEngineInput): AnswerEngine[] {
   const seed = input.seed ?? 'demo';
   const ownHost = hostOf(input.ownDomain);
   const own = ownHost === '' ? null : { host: ownHost, url: `https://${ownHost}/`, brand: input.brandNames.map((b) => b.trim()).find(Boolean) ?? brandOf(ownHost) };
+  // Only competitors that can be cited: an http(s) page on a named domain, each page once.
   const seen = new Set<string>();
-  const pool = input.competitors.filter((c) => {
-    if (!/^https?:\/\//i.test(c.url) || c.domain.trim() === '' || seen.has(c.url)) return false;
+  const pool = input.competitors.flatMap((c): DemoCompetitor[] => {
+    const domain = c.domain.trim().toLowerCase();
+    if (domain === '' || !/^https?:\/\//i.test(c.url) || seen.has(c.url)) return [];
     seen.add(c.url);
-    return true;
+    return [{ ...c, domain }];
   });
   return ENGINE_IDS.map((id) => demoEngine(id, seed, pool, own));
 }
@@ -84,7 +86,7 @@ function demoEngine(id: EngineId, seed: string, pool: readonly DemoCompetitor[],
       );
 
       // The business's own site takes a random place among the sources, not always the first.
-      const sources: Array<{ url: string; title: string; domain: string }> = cited.map((c) => ({ url: c.url, title: c.title, domain: c.domain.trim().toLowerCase() }));
+      const sources: Array<{ url: string; title: string; domain: string }> = cited.map((c) => ({ url: c.url, title: c.title, domain: c.domain }));
       if (own && ownCited) sources.splice(Math.floor(rand() * (sources.length + 1)), 0, { url: own.url, title: own.brand, domain: own.host });
 
       const names = uniqueNames(cited.map(brandFor));
@@ -99,7 +101,7 @@ function demoEngine(id: EngineId, seed: string, pool: readonly DemoCompetitor[],
       const out = new AnswerCollector();
       out.appendText(compose(id, questionKind(question), named, ownCited && own ? own.brand : null, introVariant, ownVariant));
       for (const s of sources) out.cite(s.url, s.title, s.domain);
-      for (const c of consulted) out.consult(c.url, c.title, c.domain.trim().toLowerCase());
+      for (const c of consulted) out.consult(c.url, c.title, c.domain);
       if (own && nearMiss) out.consult(own.url, own.brand, own.host);
       for (const q of queries) out.query(q);
       return out.build({ searched: true, latencyMs, usage: { inputTokens, outputTokens, searches: queries.length }, model: DEMO_MODEL });

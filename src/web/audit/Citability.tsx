@@ -95,7 +95,7 @@ export function CitabilityTab({ audit }: { audit: SiteAuditReport }): JSX.Elemen
         unit="среден шанс да бъде цитирана страница"
       >
         {after !== null ? 'сега → след първата поправка на всяка страница. ' : ''}
-        Оценени са {judged} от {rows.length} страници{judged < rows.length ? '; останалите не можаха да се оценят' : ''}.
+        Оценени страници: {judged} от {rows.length}{judged < rows.length ? ' — останалите не можаха да се оценят' : ''}.
       </Headline>
 
       <div class="table-wrap">

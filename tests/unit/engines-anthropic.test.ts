@@ -1,3 +1,4 @@
+import { inspect } from 'node:util';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { anthropicCaps, AnthropicEngine } from '../../src/server/geo/engines/anthropic';
 import type { AskOptions, EngineError } from '../../src/server/geo/engines/types';
@@ -683,5 +684,11 @@ describe('AnthropicEngine.generate', () => {
 describe('AnthropicEngine identity', () => {
   it('is Claude, with the configured model', () => {
     expect(new AnthropicEngine({ apiKey: KEY, model: 'claude-sonnet-5' })).toMatchObject({ id: 'anthropic', label: 'Claude', model: 'claude-sonnet-5' });
+  });
+
+  it('keeps the key out of anything that prints or serialises the engine (the SDK client holds it, so the client is private too)', () => {
+    const e = new AnthropicEngine({ apiKey: KEY, model: 'claude-opus-5-5' }, { fetchImpl: async () => json({}) });
+    expect(inspect(e, { depth: 8, showHidden: true })).not.toContain(KEY);
+    expect(JSON.stringify(e)).not.toContain(KEY);
   });
 });

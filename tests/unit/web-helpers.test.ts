@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { bgCount } from '../../src/shared/plural';
 import { estimateRun, parseDomains, parseUrls, tokens } from '../../src/web/lib/form';
-import { parseRoute } from '../../src/web/lib/hooks';
+import { AUDIT_TABS, isAuditTab, parseRoute } from '../../src/web/lib/hooks';
 
 // The form helpers are pure functions, so they are tested here without a browser.
 
@@ -91,5 +91,49 @@ describe('parseRoute', () => {
     for (const hash of ['#/%', '#/run/%E0%A4%A', '#/run/..', '#/report/..', '#/report/%2e%2e', '#/report/..%2F..%2Fetc', '#/report/r_UPPER', '#/run/x', '#/nope', '#/report/r_ab/../x']) {
       expect(parseRoute(hash), hash).toEqual({ name: 'notfound' });
     }
+  });
+});
+
+describe('parseRoute: whole-site audits', () => {
+  const id = 'a_demo5kq2m7x9';
+
+  it('understands the site page and the audit with or without a tab', () => {
+    expect(parseRoute('#/site')).toEqual({ name: 'site' });
+    expect(parseRoute('#/site/')).toEqual({ name: 'site' });
+    expect(parseRoute(`#/audit/${id}`)).toEqual({ name: 'audit', id, tab: 'overview' });
+    expect(parseRoute(`#/audit/${id}/`)).toEqual({ name: 'audit', id, tab: 'overview' });
+    for (const tab of ['overview', 'elements', 'competitors', 'questions', 'citability', 'geo', 'plan']) {
+      expect(parseRoute(`#/audit/${id}/${tab}`), tab).toEqual({ name: 'audit', id, tab });
+    }
+    expect([...AUDIT_TABS]).toEqual(['overview', 'elements', 'competitors', 'questions', 'citability', 'geo', 'plan']);
+    expect(isAuditTab('geo')).toBe(true);
+    expect(isAuditTab('serp')).toBe(false);
+    expect(isAuditTab('')).toBe(false);
+  });
+
+  it('turns a bad id, a bad tab or extra path into "not found"', () => {
+    const bad = [
+      '#/audit',
+      '#/audit/',
+      '#/audit/..',
+      '#/audit/%2e%2e',
+      '#/audit/a_ab',
+      '#/audit/A_UPPER123',
+      '#/audit/r_muvqmdncd33aad8e', // a keyword report id is not an audit id
+      '#/audit/j_muvqt11184fd7aeb',
+      `#/audit/${id}/nope`,
+      `#/audit/${id}/serp`,
+      `#/audit/${id}/OVERVIEW`,
+      `#/audit/${id}/overview/extra`,
+      `#/audit/${id}/..`,
+      `#/audit/${id}/%E0%A4%A`,
+      `#/audit/${id}%2F..%2Fetc`,
+    ];
+    for (const hash of bad) expect(parseRoute(hash), hash).toEqual({ name: 'notfound' });
+  });
+
+  it('leaves the keyword routes as they were', () => {
+    expect(parseRoute('#/report/r_muvqmdncd33aad8e/brief')).toEqual({ name: 'report', id: 'r_muvqmdncd33aad8e', tab: 'brief' });
+    expect(parseRoute(`#/run/${id}`)).toEqual({ name: 'run', jobId: id });
   });
 });

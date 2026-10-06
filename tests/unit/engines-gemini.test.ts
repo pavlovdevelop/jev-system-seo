@@ -1,3 +1,4 @@
+import { inspect } from 'node:util';
 import { describe, expect, it, vi } from 'vitest';
 import { GeminiEngine, hostFromTitle, isGoogleRedirect, tokenCounts } from '../../src/server/geo/engines/gemini';
 import type { AskOptions, EngineError } from '../../src/server/geo/engines/types';
@@ -498,5 +499,11 @@ describe('GeminiEngine.generate', () => {
 describe('GeminiEngine identity', () => {
   it('is Gemini, with the configured model', () => {
     expect(new GeminiEngine({ apiKey: KEY, model: 'gemini-3.1-pro' })).toMatchObject({ id: 'gemini', label: 'Gemini', model: 'gemini-3.1-pro' });
+  });
+
+  it('keeps the key out of anything that prints or serialises the engine', () => {
+    const e = new GeminiEngine({ apiKey: KEY, model: MODEL }, { fetchImpl: async () => json({}) });
+    expect(inspect(e, { depth: 8, showHidden: true })).not.toContain(KEY);
+    expect(JSON.stringify(e)).not.toContain(KEY);
   });
 });

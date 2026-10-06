@@ -5,7 +5,8 @@ import type { CompetitorPage, SiteAuditReport } from '../../shared/audit';
 import { Breakable, Headline, Pips, Verdict } from '../components/Pips';
 import { PageLink } from '../components/details';
 import { Empty, Icon, MiniBar } from '../components/ui';
-import { COMPETITOR_SCORES, competitorCounts, filterCompetitors, pathOf, sortCompetitors, type CompetitorFilter } from '../lib/audit';
+import { bgCount } from '../../shared/plural';
+import { bgNoun, COMPETITOR_SCORES, competitorCounts, filterCompetitors, pathOf, sortCompetitors, type CompetitorFilter } from '../lib/audit';
 import { pct } from '../lib/format';
 
 // Panel 02: the competitors' pages that were read in depth, scored on five things, with a verdict: steal the technique or skip.
@@ -98,8 +99,8 @@ export function CompetitorsTab({ audit }: { audit: SiteAuditReport }): JSX.Eleme
 
   return (
     <div class="stack-lg">
-      <Headline value={counts.steal} unit="страници за копиране">
-        от {counts.all} прочетени конкурентни страници — оценени по отговор, дълбочина, доказателства, schema и свежест.
+      <Headline value={counts.steal} unit={`${bgNoun(counts.steal, 'страница', 'страници')} за копиране`}>
+        от {bgCount(counts.all, 'прочетена конкурентна страница', 'прочетени конкурентни страници')} — оценени по отговор, дълбочина, доказателства, schema и свежест.
       </Headline>
 
       <section>

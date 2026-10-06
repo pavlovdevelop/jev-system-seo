@@ -445,6 +445,15 @@ describe('createDemoEngines: unusual input', () => {
     expect(own[0]).toMatchObject({ url: `https://${OWN}/`, domain: OWN });
   });
 
+  it('lower-cases and trims the domains of the competitors it cites', async () => {
+    const shouting: DemoCompetitor[] = ['Alpha-Site.Example', ' beta.example ', 'GAMMA.example', 'delta.example', 'epsilon.example'].map((domain, i) => ({ domain, url: `https://x${i}.example/`, title: `T${i}`, kind: 'other' }));
+    for (const engine of createDemoEngines({ ...INPUT, competitors: shouting })) {
+      for (const a of await asked(engine, questions(20))) {
+        for (const c of a.citations.filter((x) => x.domain !== OWN)) expect(['alpha-site.example', 'beta.example', 'gamma.example', 'delta.example', 'epsilon.example']).toContain(c.domain);
+      }
+    }
+  });
+
   it('never cites an own site it does not have', async () => {
     for (const ownDomain of ['', '   ']) {
       const engine = createDemoEngines({ ...INPUT, ownDomain })[1]!;

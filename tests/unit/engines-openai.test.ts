@@ -1,3 +1,4 @@
+import { inspect } from 'node:util';
 import { describe, expect, it, vi } from 'vitest';
 import { OpenAiEngine } from '../../src/server/geo/engines/openai';
 import type { AskOptions, EngineError } from '../../src/server/geo/engines/types';
@@ -578,6 +579,13 @@ describe('OpenAiEngine identity', () => {
   it('is ChatGPT, with the configured model', () => {
     const e = new OpenAiEngine({ apiKey: KEY, model: 'gpt-6-luna' });
     expect(e).toMatchObject({ id: 'openai', label: 'ChatGPT', model: 'gpt-6-luna' });
+  });
+
+  it('keeps the key out of anything that prints or serialises the engine', () => {
+    const e = new OpenAiEngine({ apiKey: KEY, model: MODEL }, { fetchImpl: async () => json({}) });
+    expect(inspect(e, { depth: 8, showHidden: true })).not.toContain(KEY);
+    expect(JSON.stringify(e)).not.toContain(KEY);
+    expect(Object.getOwnPropertyNames(e).map((name) => String((e as unknown as Record<string, unknown>)[name])).join(' ')).not.toContain(KEY);
   });
 
   it('trims the key it is given (a pasted newline would make the header invalid)', async () => {

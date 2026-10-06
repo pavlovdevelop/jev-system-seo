@@ -54,6 +54,9 @@ export const CITABILITY_PIPS = [
 
 // ───────────────────────── small helpers ─────────────────────────
 
+/** The noun that goes with a count, without the number ("страница" for 1, "страници" otherwise). */
+export const bgNoun = (n: number, one: string, many: string): string => (n === 1 ? one : many);
+
 /** How many of `n` pips are filled; null when the value could not be judged. */
 export function pipsFilled(value: number | null | undefined, n = 5): number | null {
   if (value === null || value === undefined || !Number.isFinite(value)) return null;

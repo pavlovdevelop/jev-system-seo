@@ -178,6 +178,8 @@ function shortUrl(url: string): string {
 class PageSet {
   private readonly entries = new Map<string, { url: string; depth: number }>();
   private readonly hosts = new Map<string, boolean>();
+  /** Keys of addresses that name a page already in the set under another address. */
+  private readonly aliases = new Set<string>();
   /** True once pages were refused because the set was full. */
   full = false;
 
@@ -209,6 +211,15 @@ class PageSet {
     }
   }
 
+  /**
+   * Another name of a page that is listed already: the address the homepage was asked for before it redirected. The logo
+   * of nearly every site links to "/", and when "/" leads to "/bg/" that must not make a second homepage.
+   */
+  alias(url: string): void {
+    const page = normalizePageUrl(url, this.isSiteHost, undefined, true);
+    if (page) this.aliases.add(page.key);
+  }
+
   /** The address that was stored when `raw` is a new page of the site, else null. */
   add(raw: string, base?: string, force = false): string | null {
     if (this.entries.size >= MAX_FOUND) {
@@ -216,7 +227,7 @@ class PageSet {
       return null;
     }
     const page = normalizePageUrl(raw, this.isSiteHost, base, force);
-    if (!page || this.entries.has(page.key)) return null;
+    if (!page || this.entries.has(page.key) || this.aliases.has(page.key)) return null;
     this.entries.set(page.key, { url: page.url, depth: page.depth });
     return page.url;
   }
@@ -478,6 +489,7 @@ export async function discoverSite(options: DiscoverOptions): Promise<Discovery>
   note('Не е намерен sitemap — страниците са открити чрез връзките от началната страница, затова списъкът може да е непълен.');
 
   pages.add(homeUrl, undefined, true);
+  pages.alias(`${origin}/`);
   const homeKey = homeKeyOf(homeUrl);
   const frontier: string[] = [];
   for (const href of extractLinks(home.html, homeUrl)) {

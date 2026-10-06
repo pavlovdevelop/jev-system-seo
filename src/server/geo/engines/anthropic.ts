@@ -104,18 +104,19 @@ export class AnthropicEngine implements AnswerEngine {
   readonly id = 'anthropic' as const;
   readonly label = LABEL;
   readonly model: string;
-  private readonly apiKey: string;
-  private readonly client: Anthropic;
+  // A #private field, so that logging or inspecting an engine can never print the key.
+  readonly #apiKey: string;
+  readonly #client: Anthropic;
 
   constructor(
     config: EngineConfig,
     private readonly options: EngineFactoryOptions = {},
   ) {
-    this.apiKey = config.apiKey.trim();
+    this.#apiKey = config.apiKey.trim();
     this.model = config.model;
     const fetchImpl = options.fetchImpl;
-    this.client = new Anthropic({
-      apiKey: this.apiKey,
+    this.#client = new Anthropic({
+      apiKey: this.#apiKey,
       // Without these the SDK would also read ANTHROPIC_AUTH_TOKEN and ANTHROPIC_BASE_URL from the environment: a stray
       // variable could then send our key to another host or add a second credential to every request.
       authToken: null,
@@ -193,7 +194,7 @@ export class AnthropicEngine implements AnswerEngine {
   private async create(params: Anthropic.MessageCreateParamsNonStreaming, timeoutMs: number, signal: AbortSignal | undefined): Promise<Anthropic.Message> {
     let message: Anthropic.Message;
     try {
-      message = await this.client.messages.create(params, { timeout: timeoutMs, ...(signal ? { signal } : {}) });
+      message = await this.#client.messages.create(params, { timeout: timeoutMs, ...(signal ? { signal } : {}) });
     } catch (err) {
       throw this.toEngineError(err, signal);
     }
@@ -250,7 +251,7 @@ export class AnthropicEngine implements AnswerEngine {
 
   /** SDK errors by class, never by message. */
   private toEngineError(err: unknown, signal: AbortSignal | undefined): EngineError {
-    const secrets = [this.apiKey];
+    const secrets = [this.#apiKey];
     const fail = (kind: EngineErrorKind, message: string, status?: number): EngineError => new EngineError(kind, message, status);
 
     if (err instanceof EngineError) return err;

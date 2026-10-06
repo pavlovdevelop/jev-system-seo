@@ -6,6 +6,7 @@ import { Breakable, Headline, Verdict } from '../components/Pips';
 import { PageLink } from '../components/details';
 import { Empty, Icon, MiniBar } from '../components/ui';
 import { askedQuestionCount, filterQuestions, NEXT_STEP_LABELS, noPageShare, pathOf, QUESTION_STAGES, QUESTION_VERDICT_TEXT, questionCounts, sortQuestions, STAGE_LABELS, type QuestionFilter } from '../lib/audit';
+import { bgCount } from '../../shared/plural';
 import { int, pct } from '../lib/format';
 
 // Panel 03: does the site have a page for what buyers ask an AI? Who the AI cites instead, and what to do about it.
@@ -77,7 +78,7 @@ export function QuestionsTab({ audit }: { audit: SiteAuditReport }): JSX.Element
   return (
     <div class="stack-lg">
       <Headline value={pct(share)} unit="от въпросите нямат страница">
-        {audit.figures.questionsNoPage} от {audit.figures.questionsTotal} въпроса, които купувачите задават на ИИ, нямат страница на сайта.
+        Без страница на сайта: {audit.figures.questionsNoPage} от {bgCount(audit.figures.questionsTotal, 'въпрос', 'въпроса')}, които купувачите задават на ИИ.
       </Headline>
 
       <section>
@@ -125,7 +126,7 @@ export function QuestionsTab({ audit }: { audit: SiteAuditReport }): JSX.Element
         </div>
         <p class="small muted" style={{ marginTop: '10px' }}>
           Подредбата е: първо въпросите без страница, после със слаб отговор, после отговорените — в рамките на групата първо най-търсените.
-          {audit.geo ? ` ИИ двигателите са питани за ${asked} от ${all.length} въпроса.` : ' ИИ двигателите не са питани, затова няма данни кого цитират.'}
+          {audit.geo ? ` ИИ двигателите са питани за ${asked} от ${bgCount(all.length, 'въпрос', 'въпроса')}.` : ' ИИ двигателите не са питани, затова няма данни кого цитират.'}
         </p>
       </section>
     </div>

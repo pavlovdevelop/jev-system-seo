@@ -361,6 +361,13 @@ describe('Markdown of text that a language model or a web page wrote', () => {
     expect(mdText('Версия 2.0 на schema.org')).toBe('Версия 2.0 на schema.org'); // not an address: no scheme, no "www."
   });
 
+  it('shows an @name as code, because a GitHub ticket would turn it into a mention that notifies that person', () => {
+    expect(mdText('cc @evil-user, моля')).toBe('cc `@evil-user`, моля');
+    expect(mdText('@студио е на линия')).toBe('`@студио` е на линия');
+    expect(mdText('иван@студио остава както е')).toBe('иван@студио остава както е'); // glued to a word: not a mention
+    expect(mdText('цена @ 990 лв.')).toBe('цена @ 990 лв.');
+  });
+
   it('removes characters that are invisible to a reader but not to a program', () => {
     const hidden = [0xad, 0x200b, 0x202e, 0x2028, 0xfeff, 0xe0041].map(ch).join('');
     expect(mdText(`сайт${hidden}ове`)).toBe('сайтове');

@@ -36,13 +36,14 @@ export class GeminiEngine implements AnswerEngine {
   readonly id = 'gemini' as const;
   readonly label = LABEL;
   readonly model: string;
-  private readonly apiKey: string;
+  // A #private field, so that logging or inspecting an engine can never print the key.
+  readonly #apiKey: string;
 
   constructor(
     config: EngineConfig,
     private readonly options: EngineHttpOptions = {},
   ) {
-    this.apiKey = config.apiKey.trim();
+    this.#apiKey = config.apiKey.trim();
     this.model = config.model;
   }
 
@@ -78,8 +79,8 @@ export class GeminiEngine implements AnswerEngine {
   private send(body: Record<string, unknown>, timeoutMs: number, signal: AbortSignal | undefined): Promise<unknown> {
     return postJson(ENDPOINT, body, {
       vendor: LABEL,
-      headers: { 'x-goog-api-key': this.apiKey },
-      secrets: [this.apiKey],
+      headers: { 'x-goog-api-key': this.#apiKey },
+      secrets: [this.#apiKey],
       timeoutMs,
       ...(this.options.fetchImpl ? { fetchImpl: this.options.fetchImpl } : {}),
       ...(this.options.retries !== undefined ? { retries: this.options.retries } : {}),
@@ -118,7 +119,7 @@ export class GeminiEngine implements AnswerEngine {
     return {
       model: asString(root.model).trim() || null,
       status: asString(root.status).trim().toLowerCase(),
-      error: describeError(root.error, this.apiKey),
+      error: describeError(root.error, this.#apiKey),
       searches,
       ...usage,
     };
@@ -140,7 +141,7 @@ export class GeminiEngine implements AnswerEngine {
   /** The reply has no text: say why when the API did (an error, a status that is not "done"); else report an empty reply when the caller needs text. */
   private failNoText(read: Read, needText: boolean): void {
     if (read.error) throw new EngineError('bad_response', `${LABEL} върна грешка: ${read.error}`);
-    if (read.status !== '' && !DONE.has(read.status)) throw new EngineError('bad_response', `${LABEL} не завърши отговора (статус: ${quoteVendor(read.status, [this.apiKey], 40)}).`);
+    if (read.status !== '' && !DONE.has(read.status)) throw new EngineError('bad_response', `${LABEL} не завърши отговора (статус: ${quoteVendor(read.status, [this.#apiKey], 40)}).`);
     if (needText) throw new EngineError('bad_response', `${LABEL} върна празен отговор.`);
   }
 }

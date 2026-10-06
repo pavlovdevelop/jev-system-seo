@@ -37,14 +37,15 @@ export class OpenAiEngine implements AnswerEngine {
   readonly id = 'openai' as const;
   readonly label = LABEL;
   readonly model: string;
-  private readonly apiKey: string;
+  // A #private field, so that logging or inspecting an engine can never print the key.
+  readonly #apiKey: string;
   private readonly dropped = new Set<Droppable>();
 
   constructor(
     config: EngineConfig,
     private readonly options: EngineHttpOptions = {},
   ) {
-    this.apiKey = config.apiKey.trim();
+    this.#apiKey = config.apiKey.trim();
     this.model = config.model;
   }
 
@@ -104,8 +105,8 @@ export class OpenAiEngine implements AnswerEngine {
       try {
         return await postJson(ENDPOINT, body, {
           vendor: LABEL,
-          headers: { authorization: `Bearer ${this.apiKey}` },
-          secrets: [this.apiKey],
+          headers: { authorization: `Bearer ${this.#apiKey}` },
+          secrets: [this.#apiKey],
           timeoutMs,
           ...(this.options.fetchImpl ? { fetchImpl: this.options.fetchImpl } : {}),
           ...(this.options.retries !== undefined ? { retries: this.options.retries } : {}),
@@ -130,7 +131,7 @@ export class OpenAiEngine implements AnswerEngine {
       outputTokens: 0,
       searches: 0,
       refusal: '',
-      error: describeError(root.error, this.apiKey) || (root.error || root.status === 'failed' ? 'неизвестна грешка' : ''),
+      error: describeError(root.error, this.#apiKey) || (root.error || root.status === 'failed' ? 'неизвестна грешка' : ''),
       incomplete: describeIncomplete(root.incomplete_details) || (root.status === 'incomplete' ? 'неизвестна причина' : ''),
     };
     const usage = isRecord(root.usage) ? root.usage : {};
@@ -173,7 +174,7 @@ export class OpenAiEngine implements AnswerEngine {
   private failIfNoText(read: Read, needText = false): void {
     if (read.refusal) throw new EngineError('refused', `${LABEL} отказа да отговори на този въпрос.`);
     if (read.error) throw new EngineError('bad_response', `${LABEL} върна грешка: ${read.error}`);
-    if (read.incomplete) throw new EngineError('bad_response', `${LABEL} не завърши отговора (${quoteVendor(read.incomplete, [this.apiKey], 80)}).`);
+    if (read.incomplete) throw new EngineError('bad_response', `${LABEL} не завърши отговора (${quoteVendor(read.incomplete, [this.#apiKey], 80)}).`);
     if (needText) throw new EngineError('bad_response', `${LABEL} върна празен отговор.`);
   }
 }

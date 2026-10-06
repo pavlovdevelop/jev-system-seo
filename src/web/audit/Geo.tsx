@@ -231,7 +231,7 @@ function Feed({ name, answers, texts, request }: { name: string; answers: Answer
         ))}
       </div>
       <p class="sr-only" role="status">
-        Показани {visible.length} от {rows.length} отговора
+        Показани {visible.length} от {bgCount(rows.length, 'отговор', 'отговора')}
       </p>
       {rows.length === 0 ? (
         <p class="small muted geo-none">{answers.length === 0 ? 'Няма записани отговори на този двигател.' : 'Няма отговори по този филтър.'}</p>
@@ -355,15 +355,15 @@ function EngineCard({ run, answers, texts, request }: { run: EngineRun; answers:
 
       <dl class="geo-stats">
         <div class="geo-stat">
-          <dt>отговора с нас</dt>
+          <dt>{run.citingUs === 1 ? 'отговор с нас' : 'отговора с нас'}</dt>
           <dd>{int(run.citingUs)}</dd>
         </div>
         <div class="geo-stat">
-          <dt>отговора без нас</dt>
+          <dt>{run.skippingUs === 1 ? 'отговор без нас' : 'отговора без нас'}</dt>
           <dd>{int(run.skippingUs)}</dd>
         </div>
         <div class="geo-stat">
-          <dt>неуспешни</dt>
+          <dt>{run.failed === 1 ? 'неуспешен' : 'неуспешни'}</dt>
           <dd>{int(run.failed)}</dd>
         </div>
         <div class="geo-stat">

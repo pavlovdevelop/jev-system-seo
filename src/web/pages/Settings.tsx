@@ -72,7 +72,7 @@ function Connections({ status }: { status: StatusResponse }): JSX.Element {
               <td>
                 <div class="au-lines">
                   {engines.map((e) => (
-                    <div key={e.id}><Conn tone={e.configured ? 'ok' : 'optional'}>{`${ENGINE_LABELS[e.id]}: ${e.configured ? 'свързан' : 'не е свързан'}`}</Conn></div>
+                    <div key={e.id}><Conn tone={e.configured ? 'ok' : 'optional'}>{e.configured ? 'свързан' : 'не е свързан'}</Conn></div>
                   ))}
                   {engines.length === 0 ? <div><Conn tone="optional">по избор</Conn></div> : null}
                 </div>
@@ -80,7 +80,9 @@ function Connections({ status }: { status: StatusResponse }): JSX.Element {
               <td class="small muted">
                 <div class="au-lines">
                   {engines.map((e) => (
-                    <div key={e.id}>{e.configured ? (e.model ?? 'свързан') : `Добави ${ENGINE_KEY[e.id]} — по избор.`}</div>
+                    <div key={e.id}>
+                      <span><strong class="ink">{ENGINE_LABELS[e.id]}</strong> · {e.configured ? (e.model ?? 'свързан') : `добави ${ENGINE_KEY[e.id]} (по избор)`}</span>
+                    </div>
                   ))}
                   {engines.length === 0 ? <div>Сървърът не съобщи кои асистенти са налични.</div> : null}
                 </div>
