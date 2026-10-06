@@ -48,9 +48,10 @@ export function Donut({ value, low = null, high = null, label, size = 112, tone 
 
   return (
     <svg class="geo-donut" viewBox="0 0 100 100" width={size} height={size} role="img" aria-label={alt} style={{ maxWidth: '100%', height: 'auto', flex: 'none' }}>
-      <circle cx={CENTER} cy={CENTER} r={RING_R} fill="none" stroke-width={RING_W} style={{ stroke: colors.track }} />
+      <circle class="geo-donut-track" cx={CENTER} cy={CENTER} r={RING_R} fill="none" stroke-width={RING_W} style={{ stroke: colors.track }} />
       {band && band.dash > 0 ? (
         <circle
+          class="geo-donut-band"
           cx={CENTER}
           cy={CENTER}
           r={INTERVAL_R}
@@ -64,6 +65,7 @@ export function Donut({ value, low = null, high = null, label, size = 112, tone 
       ) : null}
       {known && ring.dash > 0 ? (
         <circle
+          class="geo-donut-arc"
           cx={CENTER}
           cy={CENTER}
           r={RING_R}

@@ -1538,11 +1538,11 @@ main:focus {
 /* the fourth item of the main navigation has to fit a phone without hiding "Настройки" */
 @media (max-width: 480px) {
   .nav {
-    gap: 2px;
+    gap: 1px;
   }
   .nav a {
-    padding: 6px 7px;
-    font-size: 14px;
+    padding: 6px 5px;
+    font-size: 13px;
   }
 }
 

@@ -268,7 +268,7 @@
   flex-direction: column;
   gap: 8px;
   min-width: 0;
-  padding: 10px 12px 10px 12px;
+  padding: 10px 12px;
   border: 1px solid var(--border);
   border-left: 3px solid var(--geo-st);
   border-radius: var(--radius-sm);
@@ -877,6 +877,64 @@
   font-family: var(--mono);
   font-size: 12px;
   line-height: 1.5;
+}
+
+/* ───────────── forced colours (Windows high contrast) ───────────── */
+/* The system would paint the ring and its track in one colour, and the bars in none: say which is which. */
+@media (forced-colors: active) {
+  .geo-donut,
+  .geo-radar {
+    forced-color-adjust: none;
+  }
+  .geo-donut-track,
+  .geo-radar-ring,
+  .geo-radar-spoke {
+    stroke: GrayText !important;
+  }
+  .geo-donut-band {
+    stroke: LinkText !important;
+    opacity: 1 !important;
+  }
+  .geo-donut-arc,
+  .geo-radar-line {
+    stroke: Highlight !important;
+  }
+  .geo-donut text,
+  .geo-radar text {
+    fill: CanvasText !important;
+  }
+  .geo-radar-area {
+    fill: none !important;
+    stroke: Highlight !important;
+  }
+  .geo-radar-dot {
+    fill: Highlight !important;
+    stroke: Canvas !important;
+  }
+  .geo-radar-gap {
+    fill: Canvas !important;
+    stroke: GrayText !important;
+  }
+  .geo-crit .hbar-fill,
+  .plan-gain-now,
+  .plan-gain-after {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
+  .plan-gain-after {
+    background: GrayText;
+    opacity: 1;
+  }
+  .geo-crit .hbar-track,
+  .plan-gain-track,
+  .geo-arc-key {
+    border: 1px solid GrayText;
+  }
+  .geo-arc-key {
+    forced-color-adjust: none;
+    background: LinkText;
+    opacity: 1;
+  }
 }
 
 /* ───────────── phones and paper ───────────── */

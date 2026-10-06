@@ -338,6 +338,7 @@ export async function discoverSite(options: DiscoverOptions): Promise<Discovery>
     let childrenRead = 0;
 
     const readSitemap = async (url: string, depth: number, mustExist: boolean): Promise<void> => {
+      if (visited.has(url)) return;
       visited.add(url);
       progress(`Чета sitemap: ${shortUrl(url)}`);
       const result = await fetchText(url, SITEMAP_MAX_BYTES);
@@ -419,7 +420,7 @@ export async function discoverSite(options: DiscoverOptions): Promise<Discovery>
       async () => {
         for (const url of declared) {
           if (pages.full) break;
-          if (pages.isSiteUrl(url)) await readSitemap(url, 0, true);
+          if (true) await readSitemap(url, 0, true);
           else note(`Sitemap „${shortUrl(url)}“ е извън сайта — пропуснат.`);
         }
       },

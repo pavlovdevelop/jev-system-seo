@@ -87,7 +87,7 @@ function demoEngine(id: EngineId, seed: string, pool: readonly DemoCompetitor[],
       const sources: Array<{ url: string; title: string; domain: string }> = cited.map((c) => ({ url: c.url, title: c.title, domain: c.domain.trim().toLowerCase() }));
       if (own && ownCited) sources.splice(Math.floor(rand() * (sources.length + 1)), 0, { url: own.url, title: own.brand, domain: own.host });
 
-      const names = uniqueNames(cited.map((c) => brandOf(c.domain)));
+      const names = uniqueNames(cited.map(brandFor));
       const named = names.slice(0, Math.min(names.length, 2 + (rand() < 0.5 ? 1 : 0)));
       const introVariant = Math.floor(rand() * 2);
       const ownVariant = Math.floor(rand() * 3);
@@ -151,6 +151,19 @@ function brandOf(domain: string): string {
   const label = hostOf(domain).split('.')[0] ?? '';
   const words = label.split(/[-_]+/).filter(Boolean);
   return words.length === 0 ? domain : words.map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
+/**
+ * What a competitor is called in an answer: its title when that is a brand ("Пиксел Студио", or the last part of
+ * "Изработка на уебсайт – цени | Пиксел Студио"), else the name its domain suggests.
+ */
+function brandFor(c: DemoCompetitor): string {
+  const parts = c.title.split(/\s+[|–—·•]\s+|\s+-\s+/).map((part) => part.trim());
+  const candidate = (parts[parts.length - 1] ?? '').slice(0, 80);
+  const host = hostOf(c.domain);
+  const isDomain = candidate.toLowerCase().replace(/^www\./, '').startsWith(host);
+  const looksLikeBrand = candidate.length >= 2 && candidate.length <= 32 && candidate.split(/\s+/).length <= 4 && !/[?!:;,]/.test(candidate);
+  return looksLikeBrand && !isDomain ? candidate : brandOf(c.domain);
 }
 
 const uniqueNames = (names: readonly string[]): string[] => [...new Set(names)];

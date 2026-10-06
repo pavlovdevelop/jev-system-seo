@@ -45,7 +45,7 @@ function Panels({ audit }: { audit: SiteAuditReport }): JSX.Element {
         value={int(f.elementsToChange)}
         unit="елемента за промяна"
         bar={bar(share(f.elementsToChange, f.elementsTotal), 'Дял на елементите за промяна')}
-        sub={`от ${int(f.elementsTotal)} оценени на ${int(audit.site.pagesAudited)} страници`}
+        sub={f.elementsTotal > 0 ? `от ${int(f.elementsTotal)} оценени на ${int(audit.site.pagesAudited)} страници` : 'няма оценени елементи'}
         go="Към елементите"
       />
       <Panel

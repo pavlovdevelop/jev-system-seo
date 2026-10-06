@@ -79,20 +79,20 @@ export function Radar({ axes, size = 260, title }: RadarProps): JSX.Element {
     <div style={{ position: 'relative', width: '100%', maxWidth: `${W}px` }}>
       <svg class="geo-radar" viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label={alt} style={{ display: 'block', height: 'auto', overflow: 'visible' }}>
         {RINGS.map((ring) => (
-          <polygon key={ring} points={axes.map((_, i) => at(i, ring)).map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')} fill="none" stroke-width="1" style={{ stroke: ring === 1 ? 'var(--axis)' : 'var(--grid)' }} />
+          <polygon key={ring} class="geo-radar-ring" points={axes.map((_, i) => at(i, ring)).map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')} fill="none" stroke-width="1" style={{ stroke: ring === 1 ? 'var(--axis)' : 'var(--grid)' }} />
         ))}
         {axes.map((a, i) => {
           const end = at(i, 1);
-          return <line key={a.label} x1={cx} y1={cy} x2={end.x} y2={end.y} stroke-width="1" style={{ stroke: 'var(--grid)' }} />;
+          return <line key={a.label} class="geo-radar-spoke" x1={cx} y1={cy} x2={end.x} y2={end.y} stroke-width="1" style={{ stroke: 'var(--grid)' }} />;
         })}
 
         {runs.map((run) =>
           run.closed ? (
-            <polygon key="all" points={path(run.indices)} stroke-width="2" stroke-linejoin="round" style={{ fill: 'var(--accent)', fillOpacity: 0.14, stroke: 'var(--accent)' }} />
+            <polygon key="all" class="geo-radar-area" points={path(run.indices)} stroke-width="2" stroke-linejoin="round" style={{ fill: 'var(--accent)', fillOpacity: 0.14, stroke: 'var(--accent)' }} />
           ) : (
             <g key={run.indices.join('-')}>
-              {run.indices.length > 1 ? <polygon points={`${cx},${cy} ${path(run.indices)}`} stroke="none" style={{ fill: 'var(--accent)', fillOpacity: 0.14 }} /> : null}
-              {run.indices.length > 1 ? <polyline points={path(run.indices)} fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" style={{ stroke: 'var(--accent)' }} /> : null}
+              {run.indices.length > 1 ? <polygon class="geo-radar-area" points={`${cx},${cy} ${path(run.indices)}`} stroke="none" style={{ fill: 'var(--accent)', fillOpacity: 0.14 }} /> : null}
+              {run.indices.length > 1 ? <polyline class="geo-radar-area" points={path(run.indices)} fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" style={{ stroke: 'var(--accent)' }} /> : null}
             </g>
           ),
         )}
@@ -102,14 +102,14 @@ export function Radar({ axes, size = 260, title }: RadarProps): JSX.Element {
           if (v === null) {
             const rim = at(i, 1);
             return (
-              <circle key={a.label} cx={rim.x} cy={rim.y} r="4" stroke-width="1.5" style={{ fill: 'var(--surface)', stroke: 'var(--ink-3)' }}>
+              <circle key={a.label} class="geo-radar-gap" cx={rim.x} cy={rim.y} r="4" stroke-width="1.5" style={{ fill: 'var(--surface)', stroke: 'var(--ink-3)' }}>
                 <title>{`${a.label}: не може да се прецени`}</title>
               </circle>
             );
           }
           const p = at(i, v);
           return (
-            <circle key={a.label} cx={p.x} cy={p.y} r="4" stroke-width="2" style={{ fill: 'var(--accent)', stroke: 'var(--surface)' }}>
+            <circle key={a.label} class="geo-radar-dot" cx={p.x} cy={p.y} r="4" stroke-width="2" style={{ fill: 'var(--accent)', stroke: 'var(--surface)' }}>
               <title>{`${a.label}: ${pct(v)}`}</title>
             </circle>
           );
