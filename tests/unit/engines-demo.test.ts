@@ -240,6 +240,41 @@ describe('createDemoEngines: the text', () => {
     }
   });
 
+  it('names a competitor by its title when that is a brand, else by the name its domain suggests', async () => {
+    const pool: DemoCompetitor[] = [
+      { domain: 'pixel-studio.example', url: 'https://pixel-studio.example/a', title: 'Пиксел Студио', kind: 'brand' },
+      { domain: 'seo-pro.example', url: 'https://seo-pro.example/b', title: 'Изработка на уебсайт – цени и срокове | СЕО Про', kind: 'brand' },
+      { domain: 'firmi-bg.example', url: 'https://firmi-bg.example/c', title: 'Фирми.бг', kind: 'brand' },
+      { domain: 'top-agencii.example', url: 'https://top-agencii.example/d', title: 'Кои са най-добрите агенции за уебсайт през 2026 година в България?', kind: 'compare' },
+      { domain: 'news-today.example', url: 'https://news-today.example/e', title: 'Новини | news-today.example', kind: 'media' },
+      { domain: 'brand-one.example', url: 'https://brand-one.example/f', title: '', kind: 'brand' },
+      { domain: 'build-your-site.example', url: 'https://build-your-site.example/g', title: 'Build Your Site', kind: 'other' },
+    ];
+    const expected: Record<string, string> = {
+      'pixel-studio.example': 'Пиксел Студио',
+      'seo-pro.example': 'СЕО Про', // the last part of a long page title
+      'firmi-bg.example': 'Фирми.бг',
+      'top-agencii.example': 'Top Agencii', // a sentence is not a brand
+      'news-today.example': 'News Today', // the title only repeats the domain
+      'brand-one.example': 'Brand One', // no title at all
+      'build-your-site.example': 'Build Your Site',
+    };
+    const named = new Set<string>();
+    for (const engine of createDemoEngines({ ...INPUT, competitors: pool })) {
+      for (const a of await asked(engine, questions(60))) {
+        const cited = a.citations.filter((x) => x.domain !== OWN).map((x) => x.domain);
+        const inText = cited.filter((d) => a.text.includes(expected[d]!));
+        expect(inText.length).toBeGreaterThanOrEqual(2);
+        expect(inText.length).toBeLessThanOrEqual(3);
+        for (const d of inText) named.add(d);
+        // a brand is never named in its domain's form when its title gives the brand, and a page title is never named as a brand
+        for (const d of ['pixel-studio.example', 'seo-pro.example', 'firmi-bg.example']) expect(a.text).not.toContain(d);
+        for (const wrong of ['Pixel Studio', 'Seo Pro', 'Firmi Bg', 'Кои са най-добрите агенции', 'Изработка на уебсайт –', 'Новини']) expect(a.text).not.toContain(wrong);
+      }
+    }
+    expect(named.size).toBe(pool.length); // every kind of title was exercised
+  });
+
   it('names the first brand name when the own site is cited, and only then', async () => {
     let cited = 0;
     let notCited = 0;

@@ -420,7 +420,7 @@ export async function discoverSite(options: DiscoverOptions): Promise<Discovery>
       async () => {
         for (const url of declared) {
           if (pages.full) break;
-          if (true) await readSitemap(url, 0, true);
+          if (pages.isSiteUrl(url)) await readSitemap(url, 0, true);
           else note(`Sitemap „${shortUrl(url)}“ е извън сайта — пропуснат.`);
         }
       },

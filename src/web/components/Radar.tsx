@@ -88,11 +88,11 @@ export function Radar({ axes, size = 260, title }: RadarProps): JSX.Element {
 
         {runs.map((run) =>
           run.closed ? (
-            <polygon key="all" class="geo-radar-area" points={path(run.indices)} stroke-width="2" stroke-linejoin="round" style={{ fill: 'var(--accent)', fillOpacity: 0.14, stroke: 'var(--accent)' }} />
+            <polygon key="all" class="geo-radar-line" points={path(run.indices)} stroke-width="2" stroke-linejoin="round" style={{ fill: 'var(--accent)', fillOpacity: 0.14, stroke: 'var(--accent)' }} />
           ) : (
             <g key={run.indices.join('-')}>
-              {run.indices.length > 1 ? <polygon class="geo-radar-area" points={`${cx},${cy} ${path(run.indices)}`} stroke="none" style={{ fill: 'var(--accent)', fillOpacity: 0.14 }} /> : null}
-              {run.indices.length > 1 ? <polyline class="geo-radar-area" points={path(run.indices)} fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" style={{ stroke: 'var(--accent)' }} /> : null}
+              {run.indices.length > 1 ? <polygon class="geo-radar-fill" points={`${cx},${cy} ${path(run.indices)}`} stroke="none" style={{ fill: 'var(--accent)', fillOpacity: 0.14 }} /> : null}
+              {run.indices.length > 1 ? <polyline class="geo-radar-line" points={path(run.indices)} fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" style={{ stroke: 'var(--accent)' }} /> : null}
             </g>
           ),
         )}

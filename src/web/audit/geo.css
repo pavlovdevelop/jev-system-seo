@@ -121,6 +121,34 @@
     margin-bottom: 16px;
   }
 }
+/* a single engine uses the width: the summary on the left, the answers beside it */
+@media (min-width: 1000px) {
+  .geo-engines-1 {
+    max-width: none;
+    margin-bottom: 0;
+  }
+  .geo-engines-1 .geo-engine {
+    display: grid;
+    grid-row: auto;
+    grid-template-columns: minmax(0, 420px) minmax(0, 1fr);
+    grid-template-rows: repeat(5, max-content) 1fr;
+    column-gap: 0;
+    align-items: start;
+    margin-bottom: 0;
+  }
+  .geo-engines-1 .geo-engine > * {
+    grid-column: 1;
+    margin-right: 32px;
+  }
+  .geo-engines-1 .geo-engine > .geo-feed {
+    grid-column: 2;
+    grid-row: 1 / -1;
+    margin: 0;
+    padding: 0 0 0 32px;
+    border-top: 0;
+    border-left: 1px solid var(--grid);
+  }
+}
 .geo-engine-head {
   display: flex;
   align-items: flex-start;
@@ -895,17 +923,19 @@
     stroke: LinkText !important;
     opacity: 1 !important;
   }
-  .geo-donut-arc,
-  .geo-radar-line {
+  .geo-donut-arc {
     stroke: Highlight !important;
   }
   .geo-donut text,
   .geo-radar text {
     fill: CanvasText !important;
   }
-  .geo-radar-area {
+  .geo-radar-line {
     fill: none !important;
     stroke: Highlight !important;
+  }
+  .geo-radar-fill {
+    display: none;
   }
   .geo-radar-dot {
     fill: Highlight !important;
