@@ -1403,6 +1403,641 @@ main:focus {
   font-size: 12.5px;
 }
 
+/* ───────────── site audit ("Мой сайт") ───────────── */
+/* Pips: solid = filled, outlined = empty, so the value reads without colour; the filled ones step along the one blue
+   ramp from --accent to --ord-quick (both have enough contrast on the surface in light and in dark). */
+.pips {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  vertical-align: middle;
+}
+.pips i {
+  width: 7px;
+  height: 13px;
+  border-radius: 2px;
+  border: 1px solid var(--ink-3);
+  background: transparent;
+}
+.pips i.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.pips.lv-mid i.on {
+  background: color-mix(in srgb, var(--accent) 50%, var(--ord-quick));
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--ord-quick));
+}
+.pips.lv-hi i.on {
+  background: var(--ord-quick);
+  border-color: var(--ord-quick);
+}
+.pips-none {
+  color: var(--ink-2);
+}
+
+/* Verdict chips: an icon and a word on a tint. */
+.verdict {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 11px 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.verdict svg {
+  flex: none;
+}
+.verdict-ok svg {
+  color: var(--good);
+}
+.verdict-act {
+  background: var(--tint-info);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+.verdict-act svg {
+  color: var(--accent);
+}
+.verdict-warn {
+  background: var(--tint-warn);
+  border-color: color-mix(in srgb, var(--serious) 55%, transparent);
+}
+.verdict-warn svg {
+  color: color-mix(in srgb, var(--serious) 70%, var(--ink));
+}
+.verdict-bad {
+  background: var(--tint-error);
+  border-color: color-mix(in srgb, var(--critical) 50%, transparent);
+}
+.verdict-bad svg {
+  color: var(--critical);
+}
+.verdict-muted,
+.verdict-muted svg {
+  color: var(--ink-2);
+}
+
+/* Headline of a panel: the big number and what it counts. */
+.au-headline {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 14px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.au-headline-num {
+  flex: none;
+  font-size: 40px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.au-headline-after {
+  color: var(--ink-2);
+  font-size: 0.7em;
+  letter-spacing: 0;
+}
+.au-headline-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+@media (max-width: 520px) {
+  .au-headline {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 12px 14px;
+  }
+  .au-headline-num {
+    font-size: 32px;
+  }
+}
+@media (max-width: 720px) {
+  .au-table td.au-page,
+  .au-table td.au-question {
+    min-width: 0;
+  }
+  .au-chance {
+    min-width: 0;
+    gap: 6px;
+  }
+  .au-chance-track {
+    min-width: 40px;
+  }
+}
+/* the fourth item of the main navigation has to fit a phone without hiding "Настройки" */
+@media (max-width: 480px) {
+  .nav {
+    gap: 2px;
+  }
+  .nav a {
+    padding: 6px 7px;
+    font-size: 14px;
+  }
+}
+
+/* Tables of the audit. */
+.au-count {
+  margin: 0 0 10px;
+}
+.au-table td.au-page,
+.au-table td.au-question {
+  min-width: 140px;
+}
+.au-table td.au-question {
+  min-width: 220px;
+}
+.au-table tr.is-change > td:first-child,
+.au-table tr.is-steal > td:first-child,
+.au-table tr.is-gap > td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent-2);
+}
+.au-table tr.is-steal > td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.au-table tr.is-gap > td:first-child {
+  box-shadow: inset 3px 0 0 var(--critical);
+}
+.au-diff {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.au-table td.au-page {
+  overflow-wrap: anywhere;
+}
+.au-old {
+  color: var(--ink-2);
+  text-decoration-thickness: 1px;
+  overflow-wrap: anywhere;
+}
+.au-new {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-weight: 600;
+}
+.au-arrow {
+  flex: none;
+  color: var(--ink-2);
+}
+.au-by {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--ink-2);
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+.au-meta {
+  margin-top: 8px;
+}
+.au-meta > * + * {
+  margin-top: 6px;
+}
+.au-cites {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.au-ext {
+  display: inline-block;
+  margin-left: 3px;
+  vertical-align: -1px;
+}
+/* a table whose columns are given their share of the width (the questions: seven columns, one of them long text) */
+.au-fixed {
+  table-layout: fixed;
+}
+.au-fixed th {
+  white-space: normal;
+}
+/* a chip that does not fit its column wraps instead of running into the next one */
+.au-fixed .verdict {
+  max-width: 100%;
+  white-space: normal;
+}
+@media (min-width: 721px) {
+  .au-fixed {
+    min-width: 940px;
+  }
+}
+.au-chip {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0 8px;
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.au-badge-by {
+  margin-left: 2px;
+  font-weight: 550;
+  color: var(--ink-2);
+}
+.au-chance {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 150px;
+}
+.au-chance-track {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 90px;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 0 4px 4px 0;
+  background: var(--surface-3);
+}
+.au-chance-now,
+.au-chance-gain {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+.au-chance-now {
+  left: 0;
+  background: var(--accent);
+}
+/* stripes, not a second colour: the part the first fix would win */
+.au-chance-gain {
+  background: repeating-linear-gradient(135deg, var(--accent) 0 2px, transparent 2px 5px);
+  opacity: 0.7;
+}
+.au-fix-kind {
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.au-gain {
+  color: var(--success-ink);
+  font-weight: 650;
+}
+
+/* Overview. */
+.au-panels {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+@media (max-width: 1100px) {
+  .au-panels {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 520px) {
+  .au-panels {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.au-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 16px 18px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--accent);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  color: var(--ink);
+  text-decoration: none;
+}
+.au-panel:hover {
+  background: var(--surface-2);
+}
+.au-panel:hover .au-panel-go {
+  text-decoration: underline;
+}
+.au-panel-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.au-panel-no {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--ink);
+  color: var(--surface);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.au-panel-title {
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.35;
+  color: var(--ink-2);
+}
+@media (min-width: 1101px) {
+  /* room for three lines, so the numbers of the four tiles sit on one line */
+  .au-panel-title {
+    min-height: calc(3 * 1.35em);
+  }
+  .au-panel-unit {
+    min-height: 3em;
+  }
+}
+.au-panel-num {
+  font-size: 42px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+.au-panel-unit {
+  font-weight: 600;
+}
+.au-panel-sub {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.au-panel-go {
+  margin-top: auto;
+  padding-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--link);
+}
+.au-panel .meter {
+  margin: 8px 0 4px;
+}
+.au-ba {
+  position: relative;
+  display: block;
+  height: 10px;
+  margin: 8px 0 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--track);
+}
+.au-ba-now,
+.au-ba-gain {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+.au-ba-now {
+  left: 0;
+  background: var(--accent);
+}
+.au-ba-gain {
+  background: repeating-linear-gradient(135deg, var(--accent) 0 2px, transparent 2px 5px);
+  opacity: 0.7;
+}
+.au-engines {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+.au-engine {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr) 120px 190px;
+  gap: 6px 18px;
+  align-items: center;
+}
+.au-engine-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.au-engine-rate {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+.au-engine-rate strong {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.au-range {
+  position: relative;
+  display: block;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--surface-3);
+}
+.au-range-none {
+  display: block;
+}
+/* the 95% interval as a band, the measured rate as a marker, on a scale that is the same for every engine (0–100%) */
+.au-range-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 40%, var(--surface-3));
+}
+.au-range-mark {
+  position: absolute;
+  top: -3px;
+  width: 4px;
+  height: 16px;
+  margin-left: -2px;
+  border-radius: 2px;
+  background: var(--ink);
+}
+@media (max-width: 720px) {
+  .au-engine {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .au-engine .au-range,
+  .au-engine .au-range-none,
+  .au-engine-n {
+    grid-column: 1 / -1;
+  }
+  .au-engine .au-range,
+  .au-engine .au-range-none {
+    grid-row: 2;
+  }
+  .au-engine-rate {
+    grid-column: 2;
+    grid-row: 1;
+    text-align: right;
+  }
+}
+.au-todo {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.au-todo > li {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--grid);
+}
+.au-todo > li:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+.au-todo > li:last-child {
+  padding-bottom: 0;
+}
+.au-todo-no {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--surface-3);
+  font-size: 13px;
+  font-weight: 700;
+}
+.au-kv-sub {
+  display: contents;
+}
+.au-kv-sub dt {
+  padding-left: 14px;
+}
+
+/* The form that starts an audit. */
+.au-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.au-fieldset legend {
+  padding: 0;
+  margin-bottom: 8px;
+}
+.au-engine-pick {
+  display: grid;
+  gap: 10px 20px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+.check.is-off {
+  cursor: not-allowed;
+  opacity: 0.8;
+}
+.au-num-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.au-num-grid .label {
+  display: flex;
+  align-items: flex-end;
+  min-height: 2.7em;
+}
+@media (max-width: 900px) {
+  .au-num-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.au-estimate {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.au-estimate h2 {
+  font-size: 15px;
+}
+.au-est-grid {
+  display: grid;
+  gap: 12px 16px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+}
+@media (max-width: 720px) {
+  .au-est-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.au-est-grid > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.au-est-grid dt {
+  order: 2;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.au-est-grid dd {
+  order: 1;
+  margin: 0;
+  font-size: 22px;
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.au-est-grid dd.au-est-sub {
+  order: 3;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
+  color: var(--ink-2);
+}
+.au-promo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--ink);
+  text-decoration: none;
+}
+.au-promo:hover {
+  background: var(--surface-2);
+}
+.au-promo strong {
+  color: var(--link);
+}
+/* two or three lines in a table cell that line up with the same number of lines in the next cell */
+.au-lines > div {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+}
+
+@media print {
+  .au-panel,
+  .au-headline,
+  .au-estimate,
+  .au-table tr {
+    break-inside: avoid;
+  }
+}
+
 /* Paper is always light: restate the light tokens so a dark-mode user does not print white text on white paper. */
 @media print {
   :root:root {

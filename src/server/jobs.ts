@@ -1,4 +1,6 @@
+import type { SiteAuditRequest } from '../shared/audit';
 import type { AnalyzeRequest, JobState, PipelineStep, ProgressEvent } from '../shared/schemas';
+import { runSiteAudit } from './audit/pipeline';
 import { PipelineError, runAnalysis } from './pipeline/analyze';
 import type { Runtime } from './runtime';
 import { newId, type Store } from './store';
@@ -9,9 +11,12 @@ import { newId, type Store } from './store';
 
 export type JobMessage = { type: 'progress'; payload: ProgressEvent } | { type: 'state'; payload: JobState };
 
+/** What a job does: a keyword analysis or a whole-site audit. */
+type Task = { kind: 'keyword'; request: AnalyzeRequest } | { kind: 'site'; request: SiteAuditRequest };
+
 interface Job {
   state: JobState;
-  request: AnalyzeRequest;
+  task: Task;
   reportId: string;
   events: ProgressEvent[];
   listeners: Set<(m: JobMessage) => void>;
@@ -39,12 +44,20 @@ export class JobManager {
   ) {}
 
   start(request: AnalyzeRequest): JobState {
+    return this.enqueue({ kind: 'keyword', request }, request.keyword);
+  }
+
+  startAudit(request: SiteAuditRequest): JobState {
+    return this.enqueue({ kind: 'site', request }, request.domain);
+  }
+
+  private enqueue(task: Task, title: string): JobState {
     if (this.queue.length >= MAX_QUEUED) throw new PipelineError('Има твърде много чакащи анализи. Опитай след малко.', 'input');
     const id = newId('j');
     const job: Job = {
-      state: { id, status: 'queued', keyword: request.keyword, createdAt: new Date().toISOString(), last: null, reportId: null, error: null },
-      request,
-      reportId: newId('r'),
+      state: { id, kind: task.kind, status: 'queued', keyword: title, createdAt: new Date().toISOString(), last: null, reportId: null, error: null },
+      task,
+      reportId: newId(task.kind === 'site' ? 'a' : 'r'),
       events: [],
       listeners: new Set(),
       controller: new AbortController(),
@@ -137,34 +150,50 @@ export class JobManager {
     job.state = { ...job.state, status: 'running' };
     for (const l of job.listeners) l({ type: 'state', payload: job.state });
     const { store, runtime, logger } = this.deps;
-    let handle: ReturnType<Runtime['createRun']> | null = null;
+    let close: (() => Promise<void>) | null = null;
     const started = Date.now();
     try {
-      handle = runtime.createRun();
       const settings = await store.getSettings();
-      const report = await runAnalysis(
-        { id: job.reportId, request: job.request, tracked: settings.competitors.map((c) => c.domain) },
-        handle.deps,
-        (step, pct, message) => this.emit(job, step, pct, message),
-        job.controller.signal,
-      );
-      await store.saveReport(report);
-      this.emit(job, 'done', 100, 'Готово');
-      this.finish(job, 'done', null);
-      // One line of counts plus the report's own notes: enough to see from the server log whether a run went well.
-      const u = report.usage;
-      logger.info(
-        `анализ ${job.reportId} „${report.seed.keyword}“ — ${Math.round((Date.now() - started) / 1000)} с, ${report.status === 'partial' ? 'непълен' : 'пълен'}; ` +
-          `Jev: ${u.jevRequests} заявки (${u.jevFailures} неуспешни); SERP: ${u.serpCalls} (${u.serpCacheHits} от кеша); ` +
-          `страници: ${u.pagesFetched} изтеглени, ${u.pagesBlocked} блокирани, ${u.pagesFailed} неуспешни`,
-      );
-      for (const note of report.warnings) logger.info(`  бележка: ${note}`);
+      const emit = (step: PipelineStep, pct: number, message: string): void => this.emit(job, step, pct, message);
+      const tracked = settings.competitors.map((c) => c.domain);
+      const seconds = (): number => Math.round((Date.now() - started) / 1000);
+
+      if (job.task.kind === 'keyword') {
+        const handle = runtime.createRun();
+        close = handle.close;
+        const report = await runAnalysis({ id: job.reportId, request: job.task.request, tracked }, handle.deps, emit, job.controller.signal);
+        await store.saveReport(report);
+        this.emit(job, 'done', 100, 'Готово');
+        this.finish(job, 'done', null);
+        // One line of counts plus the report's own notes: enough to see from the server log whether a run went well.
+        const u = report.usage;
+        logger.info(
+          `анализ ${job.reportId} „${report.seed.keyword}“ — ${seconds()} с, ${report.status === 'partial' ? 'непълен' : 'пълен'}; ` +
+            `Jev: ${u.jevRequests} заявки (${u.jevFailures} неуспешни); SERP: ${u.serpCalls} (${u.serpCacheHits} от кеша); ` +
+            `страници: ${u.pagesFetched} изтеглени, ${u.pagesBlocked} блокирани, ${u.pagesFailed} неуспешни`,
+        );
+        for (const note of report.warnings) logger.info(`  бележка: ${note}`);
+      } else {
+        const handle = runtime.createAuditRun();
+        close = handle.close;
+        const report = await runSiteAudit({ id: job.reportId, request: job.task.request, tracked }, handle.deps, emit, job.controller.signal);
+        await store.saveAudit(report);
+        this.emit(job, 'done', 100, 'Готово');
+        this.finish(job, 'done', null);
+        const u = report.usage;
+        logger.info(
+          `одит ${job.reportId} ${report.site.domain} — ${seconds()} с, ${report.status === 'partial' ? 'непълен' : 'пълен'}; ` +
+            `страници: ${report.site.pagesAudited} (${u.pagesFailed} неуспешни); Jev: ${u.jevRequests} заявки (${u.jevFailures} неуспешни); SERP: ${u.serpCalls}; ` +
+            `ИИ: ${u.engineCalls} заявки, писател: ${u.writerCalls}; въпроси: ${report.questions.length}; план: ${report.plan.length}`,
+        );
+        for (const note of report.warnings) logger.info(`  бележка: ${note}`);
+      }
     } catch (err) {
       const known = err instanceof PipelineError;
-      if (!known) logger.error(`анализ ${job.reportId} се провали`, err);
+      if (!known) logger.error(`${job.task.kind === 'site' ? 'одит' : 'анализ'} ${job.reportId} се провали`, err);
       this.finish(job, 'error', known ? err.message : 'Неочаквана грешка при анализа. Подробности има в логовете на сървъра.');
     } finally {
-      await handle?.close().catch(() => undefined);
+      await close?.().catch(() => undefined);
     }
   }
 }

@@ -5,7 +5,13 @@ import { Callout, Icon, Loading } from '../components/ui';
 import { api, ApiError } from '../lib/api';
 import { navigate } from '../lib/hooks';
 
-const STEPS: Array<{ id: PipelineStep; label: string; detail: string }> = [
+interface Step {
+  id: PipelineStep;
+  label: string;
+  detail: string;
+}
+
+const KEYWORD_STEPS: Step[] = [
   { id: 'serp', label: 'Търся в Google', detail: 'водещи резултати, свързани търсения, въпроси' },
   { id: 'crawl', label: 'Тегля страниците на конкурентите', detail: 'само публични страници, спазвам robots.txt' },
   { id: 'judge', label: 'Jev оценява страниците', detail: 'тип, намерение, дълбочина, доверие, конверсия' },
@@ -16,11 +22,25 @@ const STEPS: Array<{ id: PipelineStep; label: string; detail: string }> = [
   { id: 'save', label: 'Подготвям отчета', detail: '' },
 ];
 
+// The whole-site audit goes through its own steps, in the order the server reports them.
+const SITE_STEPS: Step[] = [
+  { id: 'discover', label: 'Откривам страниците на сайта', detail: 'карта на сайта или връзките от началната страница' },
+  { id: 'crawl', label: 'Чета страниците', detail: 'само публични страници, спазвам robots.txt' },
+  { id: 'judge', label: 'Jev оценява страниците', detail: 'отговор, доверие, актуалност, факти' },
+  { id: 'elements', label: 'Оценявам SEO елементите', detail: 'заглавие, описание, H1, FAQ, schema…' },
+  { id: 'questions', label: 'Проверявам въпросите на купувачите', detail: 'има ли сайтът страница с отговор' },
+  { id: 'geo', label: 'Питам ChatGPT, Claude и Gemini', detail: 'цитират ли сайта в отговорите си' },
+  { id: 'competitors', label: 'Чета конкурентни страници', detail: 'какво правят те, което ние не правим' },
+  { id: 'fixes', label: 'Подготвям плана', detail: 'страници за писане и чеклисти' },
+  { id: 'save', label: 'Подготвям отчета', detail: '' },
+];
+
 export function RunPage({ jobId }: { jobId: string }): JSX.Element {
   const [job, setJob] = useState<JobState | null>(null);
   const [last, setLast] = useState<ProgressEvent | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const finished = useRef(false);
+  const reached = useRef(0);
 
   useEffect(() => {
     let closed = false;
@@ -34,7 +54,8 @@ export function RunPage({ jobId }: { jobId: string }): JSX.Element {
         finished.current = true;
         source?.close();
         if (poll) clearInterval(poll);
-        if (state.status === 'done' && state.reportId) setTimeout(() => !closed && navigate(`/report/${state.reportId}`), 700);
+        // a finished audit opens the audit page, a finished keyword analysis the report
+        if (state.status === 'done' && state.reportId) setTimeout(() => !closed && navigate(state.kind === 'site' ? `/audit/${state.reportId}` : `/report/${state.reportId}`), 700);
       }
     };
 
@@ -90,22 +111,30 @@ export function RunPage({ jobId }: { jobId: string }): JSX.Element {
   }
   if (!job) return <Loading text="Свързвам се със задачата…" />;
 
+  const site = job.kind === 'site';
+  const STEPS = site ? SITE_STEPS : KEYWORD_STEPS;
   const failed = job.status === 'error';
   const done = job.status === 'done';
   const pct = done ? 100 : (last?.pct ?? 0);
-  const activeIndex = done ? STEPS.length : Math.max(0, STEPS.findIndex((s) => s.id === last?.step));
+  // a step this list does not know (or one reported out of order) never moves the marker back
+  reached.current = Math.max(reached.current, STEPS.findIndex((s) => s.id === last?.step));
+  const activeIndex = done ? STEPS.length : reached.current;
 
   return (
     <div class="stack-lg" style={{ maxWidth: '760px' }}>
       <div class="page-head">
-        <p class="small muted"><a href="#/">← Всички анализи</a></p>
-        <h1 style={{ marginTop: '4px' }}>Анализирам „{job.keyword}“</h1>
-        <p class="page-sub">Обикновено отнема от половин до две минути. Можеш да оставиш страницата отворена — отчетът ще се покаже сам.</p>
+        <p class="small muted">{site ? <a href="#/site">← Мой сайт</a> : <a href="#/">← Всички анализи</a>}</p>
+        <h1 style={{ marginTop: '4px', overflowWrap: 'anywhere' }}>{site ? 'Одитирам' : 'Анализирам'} „{job.keyword}“</h1>
+        <p class="page-sub">
+          {site
+            ? 'Одитът минава през всички страници, конкурентите и ИИ асистентите и отнема няколко минути. Можеш да оставиш страницата отворена — одитът ще се покаже сам.'
+            : 'Обикновено отнема от половин до две минути. Можеш да оставиш страницата отворена — отчетът ще се покаже сам.'}
+        </p>
       </div>
 
       {failed ? (
         <Callout kind="error">
-          <strong>Анализът не успя.</strong>
+          <strong>{site ? 'Одитът не успя.' : 'Анализът не успя.'}</strong>
           <p style={{ marginTop: '4px' }}>{job.error}</p>
           <p class="small muted" style={{ marginTop: '6px' }}>Провери ключовете в <a href="#/settings">Настройки</a> или пусни <code>npm run doctor</code> на сървъра.</p>
         </Callout>
@@ -113,10 +142,10 @@ export function RunPage({ jobId }: { jobId: string }): JSX.Element {
 
       <section class="card">
         <div class="spread" style={{ marginBottom: '10px' }}>
-          <strong aria-live="polite">{failed ? 'Прекратено' : done ? 'Готово — отварям отчета…' : (last?.message ?? 'Стартирам…')}</strong>
+          <strong aria-live="polite">{failed ? 'Прекратено' : done ? (site ? 'Готово — отварям одита…' : 'Готово — отварям отчета…') : (last?.message ?? 'Стартирам…')}</strong>
           <span class="muted num">{Math.round(pct)}%</span>
         </div>
-        <div class="progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)} aria-label="Напредък на анализа"><span style={{ width: `${pct}%` }} /></div>
+        <div class="progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)} aria-label={site ? 'Напредък на одита' : 'Напредък на анализа'}><span style={{ width: `${pct}%` }} /></div>
 
         <ol class="steps" style={{ marginTop: '18px' }}>
           {STEPS.map((s, i) => {
@@ -137,7 +166,7 @@ export function RunPage({ jobId }: { jobId: string }): JSX.Element {
 
       <div class="row">
         {!done && !failed ? <button type="button" class="btn" onClick={cancel}>Прекрати</button> : null}
-        {failed ? <a class="btn btn-primary" href="#/">Опитай отново</a> : null}
+        {failed ? <a class="btn btn-primary" href={site ? '#/site' : '#/'}>Опитай отново</a> : null}
       </div>
     </div>
   );

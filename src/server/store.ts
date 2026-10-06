@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { SiteAuditReportSchema, type SiteAuditListItem, type SiteAuditReport } from '../shared/audit';
 import {
   ReportSchema,
   SettingsSchema,
@@ -31,7 +32,7 @@ export interface IndexEntry extends ReportSummary {
 }
 
 export { ID_PATTERN };
-export const newId = (prefix: 'r' | 'j'): string => `${prefix}_${Date.now().toString(36)}${randomBytes(4).toString('hex')}`;
+export const newId = (prefix: 'r' | 'j' | 'a'): string => `${prefix}_${Date.now().toString(36)}${randomBytes(4).toString('hex')}`;
 
 async function writeJsonAtomic(file: string, value: unknown): Promise<void> {
   const tmp = `${file}.${process.pid}.${randomBytes(3).toString('hex')}.tmp`;
@@ -71,6 +72,19 @@ export function summarize(report: Report): IndexEntry {
   };
 }
 
+export function summarizeAudit(report: SiteAuditReport): SiteAuditListItem {
+  return {
+    id: report.id,
+    domain: report.site.domain,
+    market: report.request.market,
+    mode: report.mode,
+    status: report.status,
+    createdAt: report.createdAt,
+    pagesAudited: report.site.pagesAudited,
+    figures: report.figures,
+  };
+}
+
 export class Store {
   private queue: Promise<unknown> = Promise.resolve();
 
@@ -89,12 +103,19 @@ export class Store {
   private get indexFile(): string {
     return join(this.reportsDir, '_index.json');
   }
+  private get auditsDir(): string {
+    return join(this.dir, 'audits');
+  }
+  private get auditIndexFile(): string {
+    return join(this.auditsDir, '_index.json');
+  }
   private get settingsFile(): string {
     return join(this.dir, 'settings.json');
   }
 
   async init(): Promise<void> {
     await mkdir(this.reportsDir, { recursive: true, mode: 0o700 });
+    await mkdir(this.auditsDir, { recursive: true, mode: 0o700 });
   }
 
   // ───────────── settings & competitor registry ─────────────
@@ -190,6 +211,60 @@ export class Store {
       if (!f.endsWith('.json') || f.startsWith('_')) continue;
       const parsed = ReportSchema.safeParse(await readJson<unknown>(join(this.reportsDir, f)));
       if (parsed.success) rebuilt.push(summarize(parsed.data));
+    }
+    return rebuilt;
+  }
+
+  // ───────────── site audits ─────────────
+
+  async saveAudit(report: SiteAuditReport): Promise<void> {
+    await this.exclusive(async () => {
+      await mkdir(this.auditsDir, { recursive: true, mode: 0o700 });
+      await writeJsonAtomic(join(this.auditsDir, `${report.id}.json`), report);
+      const index = await this.loadAuditIndex();
+      await writeJsonAtomic(this.auditIndexFile, [summarizeAudit(report), ...index.filter((e) => e.id !== report.id)]);
+    });
+  }
+
+  async getAudit(id: string): Promise<SiteAuditReport | null> {
+    if (!ID_PATTERN.test(id)) return null;
+    const raw = await readJson<unknown>(join(this.auditsDir, `${id}.json`));
+    if (!raw) return null;
+    const parsed = SiteAuditReportSchema.safeParse(raw);
+    return parsed.success ? parsed.data : null;
+  }
+
+  async deleteAudit(id: string): Promise<boolean> {
+    if (!ID_PATTERN.test(id)) return false;
+    return this.exclusive(async () => {
+      const file = join(this.auditsDir, `${id}.json`);
+      const existed = (await readJson<unknown>(file)) !== null;
+      await rm(file, { force: true });
+      const index = await this.loadAuditIndex();
+      await writeJsonAtomic(this.auditIndexFile, index.filter((e) => e.id !== id));
+      return existed;
+    });
+  }
+
+  async listAudits(): Promise<SiteAuditListItem[]> {
+    return (await this.loadAuditIndex()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  /** The index is a cache: if it is missing or damaged it is rebuilt from the audit files. */
+  private async loadAuditIndex(): Promise<SiteAuditListItem[]> {
+    const cached = await readJson<SiteAuditListItem[]>(this.auditIndexFile);
+    if (Array.isArray(cached)) return cached;
+    let files: string[] = [];
+    try {
+      files = await readdir(this.auditsDir);
+    } catch {
+      return [];
+    }
+    const rebuilt: SiteAuditListItem[] = [];
+    for (const f of files) {
+      if (!f.endsWith('.json') || f.startsWith('_')) continue;
+      const parsed = SiteAuditReportSchema.safeParse(await readJson<unknown>(join(this.auditsDir, f)));
+      if (parsed.success) rebuilt.push(summarizeAudit(parsed.data));
     }
     return rebuilt;
   }

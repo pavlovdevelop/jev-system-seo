@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import type { Market } from '../../shared/markets';
 import type { SerpData } from '../../shared/schemas';
-import type { FetchedPage, PageFetcher } from '../crawl/fetcher';
+import type { FetchedPage, PageFetcher, TextResult } from '../crawl/fetcher';
 import { sha1Hex } from '../util/hash';
 import type { Meter } from '../util/meter';
 import type { CallOptions, KeywordVolume, SerpProvider, SerpQuery, VolumeProvider } from './serp/types';
@@ -187,5 +187,11 @@ export class CachedFetcher implements PageFetcher {
     const page = await this.inner.fetchPage(url, options);
     if (page.status === 'ok') await this.cache.set('page', url, page);
     return page;
+  }
+
+  /** Sitemaps and robots.txt are read fresh every time (they are small and change); this only passes the call on. */
+  async fetchText(url: string, options?: { signal?: AbortSignal; maxBytes?: number }): Promise<TextResult> {
+    if (!this.inner.fetchText) return { status: 'error', httpStatus: null, text: null, finalUrl: null, error: 'Не се поддържа' };
+    return this.inner.fetchText(url, options);
   }
 }

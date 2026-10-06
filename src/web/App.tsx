@@ -5,10 +5,12 @@ import { Callout, Empty, Icon, Loading, type IconName } from './components/ui';
 import { api } from './lib/api';
 import { useAsync, useRoute, useTheme, type Route, type ThemePref } from './lib/hooks';
 import { CompetitorsPage } from './pages/Competitors';
+import { AuditPage } from './pages/Audit';
 import { HomePage } from './pages/Home';
 import { ReportPage } from './pages/Report';
 import { RunPage } from './pages/Run';
 import { SettingsPage } from './pages/Settings';
+import { SiteHomePage } from './pages/SiteHome';
 
 const THEME_NEXT: Record<ThemePref, ThemePref> = { system: 'light', light: 'dark', dark: 'system' };
 const THEME_TEXT: Record<ThemePref, string> = { system: 'като системата', light: 'светла', dark: 'тъмна' };
@@ -18,13 +20,31 @@ const TITLES: Record<Route['name'], string> = {
   home: 'Анализи',
   run: 'Анализът тече',
   report: 'Отчет',
+  site: 'Мой сайт',
+  audit: 'Одит на сайта',
   competitors: 'Конкуренти',
   settings: 'Настройки',
   notfound: 'Страницата липсва',
 };
 
-/** Which top-level nav item a route belongs to (a report or a running job is part of "Анализи"). */
-const section = (r: Route): 'home' | 'competitors' | 'settings' | null => (r.name === 'competitors' ? 'competitors' : r.name === 'settings' ? 'settings' : r.name === 'notfound' ? null : 'home');
+type Section = 'home' | 'site' | 'competitors' | 'settings';
+
+/** Which top-level nav item a route belongs to (a report or a running job is part of "Анализи", a site audit of "Мой сайт"). */
+function section(r: Route): Section | null {
+  switch (r.name) {
+    case 'competitors':
+      return 'competitors';
+    case 'settings':
+      return 'settings';
+    case 'site':
+    case 'audit':
+      return 'site';
+    case 'notfound':
+      return null;
+    default:
+      return 'home';
+  }
+}
 
 function ProviderPill({ ok, name, detail }: { ok: boolean; name: string; detail: string }): JSX.Element {
   return (
@@ -39,7 +59,7 @@ function ProviderPill({ ok, name, detail }: { ok: boolean; name: string; detail:
 function Header({ status, route }: { status: StatusResponse | null; route: Route }): JSX.Element {
   const [theme, setTheme] = useTheme();
   const active = section(route);
-  const current = (name: 'home' | 'competitors' | 'settings'): 'page' | undefined => (active === name ? 'page' : undefined);
+  const current = (name: Section): 'page' | undefined => (active === name ? 'page' : undefined);
   return (
     <header class="app-header">
       <div class="app-header-inner">
@@ -49,6 +69,7 @@ function Header({ status, route }: { status: StatusResponse | null; route: Route
         </a>
         <nav class="nav" aria-label="Основна навигация">
           <a href="#/" aria-current={current('home')}>Анализи</a>
+          <a href="#/site" aria-current={current('site')}>Мой сайт</a>
           <a href="#/competitors" aria-current={current('competitors')}>Конкуренти</a>
           <a href="#/settings" aria-current={current('settings')}>Настройки</a>
         </nav>
@@ -76,6 +97,10 @@ function Page({ route, status }: { route: Route; status: StatusResponse }): JSX.
       return <RunPage key={route.jobId} jobId={route.jobId} />;
     case 'report':
       return <ReportPage key={route.id} id={route.id} tab={route.tab} />;
+    case 'site':
+      return <SiteHomePage status={status} />;
+    case 'audit':
+      return <AuditPage key={route.id} id={route.id} tab={route.tab} />;
     case 'competitors':
       return <CompetitorsPage />;
     case 'settings':
@@ -99,8 +124,8 @@ export function App(): JSX.Element {
     document.title = `${TITLES[route.name]} · Jev SEO Radar`;
   }, [route.name]);
 
-  // Moving between pages (not between tabs of one report) starts at the top and hands focus to the content.
-  const navKey = route.name === 'report' ? `report:${route.id}` : route.name === 'run' ? `run:${route.jobId}` : route.name;
+  // Moving between pages (not between tabs of one report or audit) starts at the top and hands focus to the content.
+  const navKey = route.name === 'report' ? `report:${route.id}` : route.name === 'audit' ? `audit:${route.id}` : route.name === 'run' ? `run:${route.jobId}` : route.name;
   useEffect(() => {
     if (first.current) {
       first.current = false;

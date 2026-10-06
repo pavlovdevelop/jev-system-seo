@@ -35,10 +35,17 @@ export function useAsync<T>(fn: () => Promise<T>, deps: readonly unknown[] = [])
 }
 
 // ───────────── hash router ─────────────
+/** Tabs of a whole-site audit (#/audit/:id/:tab). */
+export const AUDIT_TABS = ['overview', 'elements', 'competitors', 'questions', 'citability', 'geo', 'plan'] as const;
+export type AuditTab = (typeof AUDIT_TABS)[number];
+export const isAuditTab = (value: string): value is AuditTab => (AUDIT_TABS as readonly string[]).includes(value);
+
 export type Route =
   | { name: 'home' }
   | { name: 'run'; jobId: string }
   | { name: 'report'; id: string; tab: string }
+  | { name: 'site' }
+  | { name: 'audit'; id: string; tab: AuditTab }
   | { name: 'competitors' }
   | { name: 'settings' }
   | { name: 'notfound' };
@@ -50,11 +57,17 @@ export function parseRoute(hash: string): Route {
   } catch {
     return { name: 'notfound' }; // a malformed escape such as "%E0%A4%A" must not blank the whole app
   }
-  const [a, b, c] = parts;
+  const [a, b, c, d] = parts;
   if (!a) return { name: 'home' };
   // ids go into API paths, so only well-formed ones get that far ("..", "%2F" and the like are not routes)
   if (a === 'run' && b) return ID_PATTERN.test(b) ? { name: 'run', jobId: b } : { name: 'notfound' };
   if (a === 'report' && b) return ID_PATTERN.test(b) ? { name: 'report', id: b, tab: c ?? 'overview' } : { name: 'notfound' };
+  if (a === 'site') return { name: 'site' };
+  // site audits have their own id prefix and a closed set of tabs: anything else is not a route
+  if (a === 'audit' && b) {
+    const tab = c ?? 'overview';
+    return ID_PATTERN.test(b) && b.startsWith('a_') && isAuditTab(tab) && d === undefined ? { name: 'audit', id: b, tab } : { name: 'notfound' };
+  }
   if (a === 'competitors') return { name: 'competitors' };
   if (a === 'settings') return { name: 'settings' };
   return { name: 'notfound' };

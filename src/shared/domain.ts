@@ -80,3 +80,8 @@ export const WEAK_COMMERCIAL_PAGE_TYPES: readonly PageType[] = [
   'blog_article',
   'other',
 ];
+
+/** The AI assistants whose answers are checked for the business (GEO). */
+export const ENGINE_IDS = ['openai', 'anthropic', 'gemini'] as const;
+export type EngineId = (typeof ENGINE_IDS)[number];
+export const ENGINE_LABELS: Record<EngineId, string> = { openai: 'ChatGPT', anthropic: 'Claude', gemini: 'Gemini' };

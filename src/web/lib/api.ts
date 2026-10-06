@@ -1,3 +1,4 @@
+import type { SiteAuditListItem, SiteAuditReport, SiteAuditRequestInput } from '../../shared/audit';
 import type {
   AnalyzeRequestInput,
   CompetitorOverviewRow,
@@ -14,6 +15,8 @@ export interface DemoDefaults {
   businessDescription: string;
   ownDomain: string;
   competitors: string[];
+  /** Names an AI answer may use for the demo business (the server may leave it out). */
+  brandNames?: string[];
 }
 
 export class ApiError extends Error {
@@ -63,4 +66,12 @@ export const api = {
   report: (id: string) => request<{ report: Report }>('GET', `/api/reports/${encodeURIComponent(id)}`),
   deleteReport: (id: string) => request<{ ok: true }>('DELETE', `/api/reports/${encodeURIComponent(id)}`),
   exportUrl: (id: string, format: 'json' | 'csv' | 'md') => `/api/reports/${encodeURIComponent(id)}/export?format=${format}`,
+
+  // whole-site audit ("Мой сайт")
+  startAudit: (body: SiteAuditRequestInput) => request<{ job: JobState }>('POST', '/api/audits', body),
+  audits: () => request<{ audits: SiteAuditListItem[] }>('GET', '/api/audits'),
+  audit: (id: string) => request<{ audit: SiteAuditReport }>('GET', `/api/audits/${encodeURIComponent(id)}`),
+  deleteAudit: (id: string) => request<{ ok: true }>('DELETE', `/api/audits/${encodeURIComponent(id)}`),
+  /** md = summary and plan, csv = the SEO elements table, json = the whole report. */
+  auditExportUrl: (id: string, format: 'md' | 'csv' | 'json') => `/api/audits/${encodeURIComponent(id)}/export?format=${format}`,
 };

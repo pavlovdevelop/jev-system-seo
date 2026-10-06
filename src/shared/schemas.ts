@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   CONFIDENCE_LEVELS,
+  ENGINE_IDS,
   INTENTS,
   KEYWORD_SOURCES,
   OPPORTUNITY_LABELS,
@@ -135,6 +136,18 @@ export const PageMetricsSchema = z.object({
   socialProof: z.array(z.string()),
   navLabels: z.array(z.string()),
   latestYear: z.number().int().nullable(),
+  /** ISO date the page says it was last changed (schema.org dateModified, article:modified_time, <time>), else null. */
+  modifiedAt: z.string().nullable().default(null),
+  /** ISO date the page says it was first published, else null. */
+  publishedAt: z.string().nullable().default(null),
+  tables: count.default(0),
+  lists: count.default(0),
+  /** Distinct other sites the page links to: a proxy for "cites its sources". */
+  externalDomains: count.default(0),
+  /** A byline, an author box or schema.org author markup. */
+  hasAuthor: z.boolean().default(false),
+  /** Question-and-answer pairs found in an FAQ section or FAQPage markup. */
+  faqQuestions: count.default(0),
   keyword: z.object({
     inTitle: z.boolean(),
     inH1: z.boolean(),
@@ -351,9 +364,13 @@ export const TrackedCompetitorSchema = z.object({
 });
 export type TrackedCompetitor = z.infer<typeof TrackedCompetitorSchema>;
 
+export const BrandNameSchema = z.string().trim().min(2).max(60);
+
 export const SettingsSchema = z.object({
   businessDescription: z.string().trim().max(600).default(''),
   ownDomain: DomainSchema.nullable().default(null),
+  /** Names an AI answer may use for the business (so a mention is recognised). */
+  brandNames: z.array(BrandNameSchema).max(10).default([]),
   market: z.enum(MARKET_IDS).default('bg'),
   competitors: z.array(TrackedCompetitorSchema).max(100).default([]),
 });
@@ -362,6 +379,7 @@ export type Settings = z.infer<typeof SettingsSchema>;
 export const SettingsPatchSchema = z.object({
   businessDescription: z.string().trim().max(600).optional(),
   ownDomain: DomainSchema.nullable().optional(),
+  brandNames: z.array(BrandNameSchema).max(10).optional(),
   market: z.enum(MARKET_IDS).optional(),
 });
 export type SettingsPatch = z.infer<typeof SettingsPatchSchema>;
@@ -458,6 +476,13 @@ export const PIPELINE_STEPS = [
   'score',
   'save',
   'done',
+  // whole-site audit
+  'discover',
+  'elements',
+  'competitors',
+  'questions',
+  'geo',
+  'fixes',
 ] as const;
 export type PipelineStep = (typeof PIPELINE_STEPS)[number];
 
@@ -472,7 +497,10 @@ export type ProgressEvent = z.infer<typeof ProgressEventSchema>;
 
 export const JobStateSchema = z.object({
   id: z.string(),
+  /** 'keyword' = the keyword analysis; 'site' = the whole-site audit. */
+  kind: z.enum(['keyword', 'site']).default('keyword'),
   status: z.enum(['queued', 'running', 'done', 'error']),
+  /** The keyword, or the domain for a site audit. */
   keyword: z.string(),
   createdAt: iso,
   last: ProgressEventSchema.nullable(),
@@ -493,6 +521,14 @@ export interface CompetitorOverviewRow {
   lastSeen: string;
 }
 
+export const EngineStatusSchema = z.object({
+  id: z.enum(ENGINE_IDS),
+  label: z.string(),
+  configured: z.boolean(),
+  model: z.string().nullable(),
+});
+export type EngineStatus = z.infer<typeof EngineStatusSchema>;
+
 export const StatusResponseSchema = z.object({
   version: z.string(),
   demo: z.boolean(),
@@ -506,5 +542,11 @@ export const StatusResponseSchema = z.object({
   serp: z.object({ provider: z.enum(['serper', 'dataforseo', 'demo', 'none']), configured: z.boolean() }),
   volume: z.object({ provider: z.enum(['dataforseo', 'demo', 'none']), configured: z.boolean() }),
   limits: z.object({ maxCandidates: z.number(), maxDeepPages: z.number() }),
+  /** The AI assistants that can be asked (GEO). */
+  engines: z.array(EngineStatusSchema),
+  /** The language model that writes proposals and checklists; none = fixed rules only. */
+  writer: z.object({ configured: z.boolean(), engine: z.enum(ENGINE_IDS).nullable() }),
+  /** Caps for the whole-site audit. */
+  audit: z.object({ maxPages: z.number(), maxQuestions: z.number(), maxEngineCalls: z.number() }),
 });
 export type StatusResponse = z.infer<typeof StatusResponseSchema>;

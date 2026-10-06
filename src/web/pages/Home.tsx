@@ -421,6 +421,10 @@ export function HomePage({ status }: { status: StatusResponse }): JSX.Element {
         </form>
 
         <aside class="stack">
+          <a class="card card-tight au-promo" href="#/site">
+            <strong>Одит на целия сайт <span aria-hidden="true">→</span></strong>
+            <span class="small muted">Всички страници, всеки SEO елемент, конкурентите и какво казват ChatGPT, Claude и Gemini за сайта ти.</span>
+          </a>
           <HowItWorks />
         </aside>
       </div>

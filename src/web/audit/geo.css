@@ -1,0 +1,937 @@
+/* "ИИ видимост" and "План" — the styles of the two audit tabs. Only the app's own tokens (styles.css) are used, so
+   light, dark and print follow the theme. State is never colour alone: every tint comes with an icon and a word. */
+
+/* ───────────── shared small parts ───────────── */
+.geo-dom {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.geo-lbl {
+  flex: none;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.geo-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.geo-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+.badge.geo-engine-badge {
+  gap: 4px;
+}
+.geo-more-row {
+  display: flex;
+  justify-content: center;
+  margin-top: 16px;
+}
+.geo-more {
+  align-self: flex-start;
+  margin-top: 12px;
+}
+.geo-more-row .geo-more {
+  margin-top: 0;
+}
+
+/* the state of an answer: tint + icon + word */
+.badge.geo-st {
+  gap: 5px;
+  padding-left: 7px;
+}
+.badge.geo-st svg {
+  flex: none;
+}
+.badge.geo-st-cited {
+  background: color-mix(in srgb, var(--good) 15%, var(--surface));
+}
+.badge.geo-st-cited svg {
+  color: var(--success-ink);
+}
+.badge.geo-st-named {
+  background: var(--tint-info);
+}
+.badge.geo-st-named svg {
+  color: var(--accent);
+}
+.badge.geo-st-missing {
+  background: var(--tint-error);
+}
+.badge.geo-st-missing svg {
+  color: var(--critical);
+}
+.badge.geo-st-failed {
+  background: var(--surface-2);
+}
+.badge.geo-st-failed svg {
+  color: var(--ink-2);
+}
+
+/* ───────────── the engines ───────────── */
+.geo-intro {
+  max-width: 78ch;
+}
+.geo-jump {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-top: -6px;
+}
+/* a jump leaves room for the sticky header above the heading it scrolls to */
+.geo-anchor {
+  scroll-margin-top: 72px;
+}
+.geo-engines {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  align-items: start;
+}
+/* one engine: a column of a comfortable reading width instead of a stretched one */
+.geo-engines-1 {
+  max-width: 560px;
+}
+.geo-engine {
+  display: flex;
+  flex-direction: column;
+}
+.geo-engine > * + * {
+  margin-top: 16px;
+}
+/* Where subgrid exists the engine columns line their rows up (head, ring, counters, usage, domains, answers), so the
+   three rings, the three counter blocks and the three bar lists sit at the same height. The card always has six
+   children for this reason. Elsewhere it is a plain column. */
+@supports (grid-template-rows: subgrid) {
+  .geo-engines {
+    align-items: stretch;
+    row-gap: 0;
+    margin-bottom: -16px;
+  }
+  .geo-engine {
+    display: grid;
+    grid-row: span 6;
+    grid-template-rows: subgrid;
+    margin-bottom: 16px;
+  }
+}
+.geo-engine-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+.geo-engine-head > .badge {
+  flex: none;
+}
+.geo-engine-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.geo-engine-name h3 {
+  font-size: 20px;
+  letter-spacing: -0.01em;
+}
+.geo-model {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.geo-hero {
+  display: flex;
+  align-items: center;
+  gap: 8px 18px;
+}
+.geo-hero-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 150px;
+}
+.geo-hero-lead {
+  font-size: 14px;
+  line-height: 1.4;
+}
+.geo-hero-lead b {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.geo-hero-interval {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+/* the key of the thin outer arc of the ring: the interval the true share could lie in */
+.geo-arc-key {
+  display: inline-block;
+  width: 16px;
+  height: 4px;
+  margin-right: 6px;
+  vertical-align: middle;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0.55;
+}
+
+.geo-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+.geo-stat {
+  display: flex;
+  flex-direction: column-reverse; /* the figure above its label; the label stays first in the reading order */
+  justify-content: flex-end;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.geo-stat dt {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.geo-stat dd {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 650;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+.geo-stat dd.geo-stat-text {
+  font-size: 15px;
+  line-height: 1.3;
+  letter-spacing: 0;
+  display: flex;
+  flex-direction: column;
+}
+.geo-stat-note {
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--ink-2);
+  letter-spacing: 0;
+}
+.geo-usage {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+/* a block of the engine column: its own heading above a hairline */
+.geo-engine > .geo-sec {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--grid);
+  min-width: 0;
+}
+.geo-cited .hbars {
+  gap: 12px;
+}
+.geo-dom-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.legend.geo-legend {
+  margin-top: 12px;
+  font-size: 12.5px;
+}
+
+/* ───────────── the feed of answers ───────────── */
+.geo-feed .chips {
+  margin-bottom: 4px;
+}
+.geo-answers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.geo-answer {
+  --geo-st: var(--axis);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--geo-st);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.geo-answer.is-cited {
+  --geo-st: var(--good);
+}
+.geo-answer.is-named {
+  --geo-st: var(--accent);
+}
+.geo-answer.is-missing {
+  --geo-st: var(--critical);
+}
+.geo-answer-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.geo-latency {
+  font-size: 12px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.geo-q {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.geo-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+.geo-metrics dt {
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+.geo-metrics dd {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.geo-error {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.chip.geo-src {
+  max-width: 100%;
+  padding: 1px 8px;
+  font-size: 12px;
+  gap: 5px;
+  overflow-wrap: anywhere;
+}
+.chip.geo-src.is-own {
+  border-color: var(--accent-2);
+}
+.geo-own-tag {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-2) 20%, var(--surface));
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.chip.geo-more-chip {
+  padding: 1px 8px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.geo-brands {
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+.geo-none {
+  margin-top: 12px;
+}
+
+/* the excerpt of an answer, behind a button */
+.geo-exp {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  min-height: 30px;
+  padding: 4px 6px 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--link);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.geo-exp:hover {
+  text-decoration: underline;
+}
+.geo-exp svg {
+  flex: none;
+}
+.geo-exp[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .geo-exp svg {
+    transition: transform 0.15s;
+  }
+}
+.geo-exp-body[hidden] {
+  display: none;
+}
+.geo-exp-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.geo-excerpt {
+  padding: 8px 10px;
+  border-left: 3px solid var(--axis);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--surface-2);
+  font-size: 13.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.geo-sources {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+/* ───────────── why the engines skip us ───────────── */
+.geo-skips {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr));
+  align-items: start;
+}
+.geo-skip {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.geo-skip-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+.geo-skip-q {
+  flex: 1 1 260px;
+  min-width: 0;
+  font-size: 16px;
+  line-height: 1.35;
+}
+.geo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.badge.geo-action {
+  gap: 5px;
+}
+.badge.geo-action-create {
+  background: var(--tint-info);
+}
+.badge.geo-action-rewrite {
+  background: var(--tint-warn);
+}
+.geo-skip-body {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr);
+}
+.geo-skip-col {
+  min-width: 0;
+}
+.geo-instead {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.geo-instead li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+.geo-instead-what {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  min-width: 0;
+}
+.geo-page {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.geo-nopage {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.geo-nopage svg {
+  flex: none;
+  color: var(--ink-2);
+}
+.geo-citability {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px 20px;
+  margin-top: 12px;
+}
+.geo-score {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 2px;
+  flex: none;
+  min-width: 88px;
+}
+.geo-score-num {
+  font-size: 40px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+.geo-score-of {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.geo-score-cap {
+  flex-basis: 100%;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.geo-crit {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  flex: 1 1 220px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* the eight criteria stay on one line each, also on a phone (the base .hbar puts the bar under the label there) */
+.geo-crit-row.hbar {
+  grid-template-columns: minmax(110px, 1.5fr) minmax(40px, 1fr) 38px;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.25;
+}
+.geo-crit-row .hbar-value {
+  grid-column: auto;
+  grid-row: auto;
+  font-size: 13px;
+}
+.geo-crit-row .hbar-track {
+  grid-column: auto;
+  grid-row: auto;
+}
+.geo-crit-gap {
+  background: transparent;
+  border: 1px dashed var(--axis);
+  border-radius: 4px;
+}
+.geo-reasons {
+  align-items: center;
+  padding-top: 14px;
+  border-top: 1px solid var(--grid);
+}
+
+/* ───────────── pages the engines cite ───────────── */
+.geo-wins {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 480px), 1fr));
+}
+.geo-win {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.geo-win-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px 10px;
+}
+.geo-win-domain {
+  min-width: 0;
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+.geo-win-domain svg {
+  vertical-align: -1px;
+}
+.geo-win-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 13px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.geo-win-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+/* the separator closes a part instead of opening the next, so a wrapped line never starts with a dot */
+.geo-win-meta > span:not(.badge):not(:last-child)::after {
+  content: '·';
+  margin-left: 8px;
+}
+.geo-win-body {
+  display: grid;
+  gap: 12px 20px;
+  grid-template-columns: minmax(0, 1fr);
+}
+.geo-radar-box {
+  width: 100%;
+  max-width: 280px;
+  min-width: 0;
+  justify-self: center;
+}
+.geo-win-side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+@container (min-width: 440px) {
+  .geo-win-body {
+    grid-template-columns: minmax(0, 270px) minmax(0, 1fr);
+    align-items: center;
+  }
+  .geo-radar-box {
+    justify-self: stretch;
+  }
+}
+.geo-why {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13.5px;
+}
+
+/* ───────────── the plan ───────────── */
+.plan-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px 20px;
+}
+.plan-summary-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.badge.plan-kind {
+  gap: 5px;
+}
+.badge.plan-kind-create {
+  background: var(--tint-info);
+}
+.badge.plan-kind-rewrite {
+  background: var(--tint-warn);
+}
+.plan-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.plan-card {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.plan-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 20px;
+}
+.plan-head-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  flex: 1 1 300px;
+  min-width: 0;
+}
+.plan-head-main h3 {
+  font-size: 18px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.plan-url {
+  font-size: 13px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.plan-body {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(0, 1fr);
+}
+@container (min-width: 760px) {
+  .plan-body {
+    grid-template-columns: minmax(240px, 0.8fr) minmax(0, 1.5fr);
+    gap: 28px;
+  }
+}
+.plan-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+.plan-questions {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13.5px;
+  overflow-wrap: anywhere;
+}
+.plan-gain-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.plan-gain-arrow {
+  color: var(--ink-2);
+  font-size: 18px;
+}
+.plan-gain-fig {
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+.plan-gain-text .muted {
+  margin-left: 4px;
+}
+/* dark = today, light = what the plan could add (a projection, not a measurement) */
+.plan-gain-track {
+  position: relative;
+  height: 8px;
+  margin-top: 8px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.plan-gain-now,
+.plan-gain-after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: 0 4px 4px 0;
+  background: var(--accent);
+}
+.plan-gain-after {
+  opacity: 0.35;
+}
+.plan-steps {
+  min-width: 0;
+}
+.plan-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+.plan-progress-row .meter {
+  flex: 1 1 auto;
+  min-width: 60px;
+}
+.plan-count {
+  font-weight: 650;
+  white-space: nowrap;
+}
+.plan-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.plan-step {
+  display: grid;
+  grid-template-columns: 20px 22px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.plan-step:hover {
+  background: var(--surface-2);
+}
+.plan-step:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+.plan-step input {
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  accent-color: var(--accent-button);
+}
+.plan-step-num {
+  padding-top: 1px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  text-align: right;
+}
+.plan-step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.plan-step.is-done .plan-step-text {
+  color: var(--ink-2);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.plan-step-why {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.plan-by {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--grid);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.plan-by svg {
+  flex: none;
+}
+.plan-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: 100%;
+}
+.plan-copy-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 12px;
+}
+.plan-copy-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.plan-copy-status svg {
+  color: var(--success-ink);
+}
+.textarea.plan-copy-text {
+  width: min(560px, 100%);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* ───────────── phones and paper ───────────── */
+@media (max-width: 520px) {
+  .card.geo-engine,
+  .card.geo-skip,
+  .card.geo-win,
+  .card.plan-card,
+  .card.plan-summary {
+    padding: 16px;
+  }
+  .geo-hero {
+    flex-wrap: wrap;
+  }
+  .plan-copy {
+    align-items: flex-start;
+  }
+  .plan-copy-row {
+    justify-content: flex-start;
+  }
+}
+@media print {
+  /* controls make no sense on paper; the bars and tints must print without "background graphics" */
+  .geo-more,
+  .geo-more-row,
+  .geo-feed .chips,
+  .geo-jump,
+  .geo-exp,
+  .plan-copy {
+    display: none !important;
+  }
+  /* the columns of engines follow one another and may break between pages (a card taller than a page cannot "avoid" it) */
+  .geo-engines {
+    display: block;
+    margin-bottom: 0;
+  }
+  .card.geo-engine {
+    display: block;
+    margin-bottom: 16px;
+    break-inside: auto;
+  }
+  .geo-answer,
+  .card.geo-skip,
+  .card.geo-win,
+  .plan-step {
+    break-inside: avoid;
+  }
+  .hbar-fill,
+  .plan-gain-track span,
+  .meter > span,
+  .badge.geo-st,
+  .geo-arc-key,
+  .geo-stat,
+  .geo-legend .swatch {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

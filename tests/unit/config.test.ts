@@ -70,6 +70,47 @@ describe('loadConfig', () => {
   });
 });
 
+describe('AI assistants and the whole-site audit', () => {
+  it('has none, no writer and the default caps when nothing is set', () => {
+    const c = loadConfig(env({}), []);
+    expect(c.engines).toEqual({ openai: null, anthropic: null, gemini: null });
+    expect(c.writer).toBeNull();
+    expect(c.audit).toEqual({ maxPages: 100, maxQuestions: 60, maxEngineCalls: 150 });
+  });
+
+  it('reads each assistant\'s key and model, with a default model, and ignores a blank key', () => {
+    const c = loadConfig(env({ OPENAI_API_KEY: 'sk-o', ANTHROPIC_API_KEY: ' sk-a ', ANTHROPIC_MODEL: 'claude-sonnet-5-5', GEMINI_API_KEY: '   ' }), []);
+    expect(c.engines.openai).toEqual({ apiKey: 'sk-o', model: 'gpt-6.1-sol' });
+    expect(c.engines.anthropic).toEqual({ apiKey: 'sk-a', model: 'claude-sonnet-5-5' });
+    expect(c.engines.gemini).toBeNull();
+  });
+
+  it('takes the Gemini key from GOOGLE_API_KEY too, with GEMINI_API_KEY first', () => {
+    expect(loadConfig(env({ GOOGLE_API_KEY: 'g1' }), []).engines.gemini).toEqual({ apiKey: 'g1', model: 'gemini-3.8-flash' });
+    expect(loadConfig(env({ GOOGLE_API_KEY: 'g1', GEMINI_API_KEY: 'g2' }), []).engines.gemini?.apiKey).toBe('g2');
+  });
+
+  it('picks the writer: Claude, then ChatGPT, then Gemini — or what WRITER_ENGINE says', () => {
+    expect(loadConfig(env({ OPENAI_API_KEY: 'o', GEMINI_API_KEY: 'g' }), []).writer).toBe('openai');
+    expect(loadConfig(env({ OPENAI_API_KEY: 'o', ANTHROPIC_API_KEY: 'a' }), []).writer).toBe('anthropic');
+    expect(loadConfig(env({ GEMINI_API_KEY: 'g' }), []).writer).toBe('gemini');
+    expect(loadConfig(env({ OPENAI_API_KEY: 'o', ANTHROPIC_API_KEY: 'a', WRITER_ENGINE: 'openai' }), []).writer).toBe('openai');
+    expect(loadConfig(env({ OPENAI_API_KEY: 'o', WRITER_ENGINE: 'none' }), []).writer).toBeNull();
+  });
+
+  it('refuses a writer that is unknown or has no key', () => {
+    expect(() => loadConfig(env({ WRITER_ENGINE: 'bing', OPENAI_API_KEY: 'o' }), [])).toThrow(/WRITER_ENGINE/);
+    expect(() => loadConfig(env({ WRITER_ENGINE: 'gemini', OPENAI_API_KEY: 'o' }), [])).toThrow(/ключ/);
+  });
+
+  it('bounds the audit caps', () => {
+    expect(loadConfig(env({ MAX_AUDIT_PAGES: '500', MAX_GEO_QUESTIONS: '0', MAX_GEO_CALLS_PER_RUN: '2000' }), []).audit).toEqual({ maxPages: 500, maxQuestions: 0, maxEngineCalls: 2000 });
+    expect(() => loadConfig(env({ MAX_AUDIT_PAGES: '501' }), [])).toThrow(/MAX_AUDIT_PAGES/);
+    expect(() => loadConfig(env({ MAX_GEO_QUESTIONS: '201' }), [])).toThrow(/MAX_GEO_QUESTIONS/);
+    expect(() => loadConfig(env({ MAX_GEO_CALLS_PER_RUN: 'много' }), [])).toThrow(/MAX_GEO_CALLS_PER_RUN/);
+  });
+});
+
 describe('.env.example', () => {
   const text = readFileSync(new URL('../../.env.example', import.meta.url), 'utf8');
   // KEY=value lines, whether active or commented out as an optional example

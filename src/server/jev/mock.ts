@@ -55,7 +55,7 @@ type TypeKey = 'service_page' | 'company_homepage' | 'blog_article' | 'compariso
 
 const CUES: Array<[TypeKey, RegExp]> = [
   ['forum_or_social', /форум|forum|тема:|\/t\/|нишка|коментари|отговори \(/i],
-  ['directory_marketplace', /каталог|директори|\/kategoria|регистър на фирми|списък с фирми|firmi-bg/i],
+  ['directory_marketplace', /каталог на фирми|каталог с фирми|фирми[^|.]{0,60}каталог|директори[яи] (на|с) фирми|\/kategoria|регистър на фирми|списък с фирми|firmi-bg/i],
   ['comparison_listicle', /топ \d+|класаци|сравнение на|най-добрите фирми/i],
   ['platform_or_tool', /конструктор|създайте сайт|създай сайт безплатно|drag.?and.?drop|build-your-site|шаблони за сайт/i],
   ['blog_article', /как да|ръководство|съвети|\/blog\/|критерия за избор|какво е /i],
@@ -189,7 +189,7 @@ function answerFor(id: string, q: Question, state: Json, salt: string): Json {
 
     // keyword slice
     case 'relevant_to_business': {
-      const query = str(state.search_query).toLowerCase();
+      const query = (str(state.search_query) || str(state.buyer_question)).toLowerCase();
       if (/безплатн|рецепт|курс|обучени|работа|свободни позиции|pdf|изтегл|скандал|ваканци/.test(query)) return noulAnswer(0.16 + w(0.04));
       if (/сайт|уеб|web|магазин|дизайн|seo|оптимизац|wordpress|разработк|изработк/.test(query)) return noulAnswer(0.9 + w(0.04));
       return noulAnswer(coverage(query, str(state.business)) > 0.3 ? 0.7 : 0.34);
@@ -213,6 +213,116 @@ function answerFor(id: string, q: Question, state: Json, salt: string): Json {
       else if (/отзиви|сравнение|най-добр/.test(query)) raw = 1.9;
       return scoreAnswer(levelsOf(q), raw + w(0.1));
     }
+
+    // ── whole-site audit: SEO elements ──
+    case 'title_clear':
+    case 'title_specific': {
+      const page = isObj(state.page) ? state.page : {};
+      const title = str(page.title);
+      if (!title) return noulAnswer(0.05);
+      const phrase = str(state.search_phrase);
+      const cov = phrase ? coverage(phrase, title) : 0.6;
+      const slogan = /добре дошли|^начало|^home|welcome|официален сайт/i.test(title) ? 0.35 : 0;
+      const brandOnly = title.split(/\s+/).length <= 2 ? 0.2 : 0;
+      return noulAnswer(0.22 + 0.7 * cov - slogan - brandOnly + (id === 'title_specific' ? -0.05 : 0.03) + w(0.04));
+    }
+    case 'meta_inviting': {
+      const page = isObj(state.page) ? state.page : {};
+      const meta = str(page.meta_description);
+      if (!meta) return noulAnswer(0.05);
+      const cta = /оферт|безплатн|поръчай|поръчайте|свържи|цена|цени|от \d+|гаранци|консултаци|срок/i.test(meta) ? 0.3 : 0;
+      return noulAnswer(0.28 + (meta.length >= 70 ? 0.25 : 0) + cta + w(0.05));
+    }
+    case 'h1_matches': {
+      const page = isObj(state.page) ? state.page : {};
+      const h1 = str(page.h1);
+      if (!h1) return noulAnswer(0.05);
+      const phrase = str(state.search_phrase);
+      return noulAnswer(0.18 + 0.78 * (phrase ? coverage(phrase, h1) : 0.6) + w(0.04));
+    }
+    case 'intro_direct': {
+      const page = isObj(state.page) ? state.page : {};
+      const intro = str(page.first_paragraph);
+      if (/^(добре дошли|здравейте|в днешния|нашата компания|ние сме)/i.test(intro.trim())) return noulAnswer(0.14 + w(0.04));
+      const concrete = /\d|струва|включва|срок|правим|изработваме|предлагаме|за \d+ (дни|седмици)/i.test(intro);
+      return noulAnswer((concrete ? 0.8 : 0.42) + w(0.05));
+    }
+    case 'outline_logical': {
+      const page = isObj(state.page) ? state.page : {};
+      const n = list(page.subheadings).length;
+      return scoreAnswer(levelsOf(q), (n === 0 ? 0.4 : n <= 2 ? 1.4 : n <= 5 ? 2.6 : 3.2) + w(0.15));
+    }
+    case 'faq_useful': {
+      const qs = list(state.faq_questions);
+      const real = qs.filter((x) => /цена|колко|срок|гаранци|как |поддръжка|включва/i.test(x)).length;
+      return noulAnswer(qs.length >= 3 && real >= 2 ? 0.84 : qs.length >= 3 ? 0.58 : 0.4);
+    }
+
+    // ── whole-site audit: citability ──
+    case 'answer_first': {
+      const opening = str(state.opening);
+      const topic = str(state.topic);
+      if (/^(добре дошли|здравейте|в днешния|нашата компания|ние сме)/i.test(opening.trim())) return scoreAnswer(levelsOf(q), 0.7 + w(0.2));
+      const digits = (opening.slice(0, 320).match(/\d+/g) ?? []).length;
+      const cov = topic ? coverage(topic, opening.slice(0, 320)) : 0.4;
+      return scoreAnswer(levelsOf(q), clamp(0.9 + 1.7 * cov + Math.min(1.1, digits * 0.4) + w(0.2), 0, 4));
+    }
+    case 'specific_facts': {
+      const text = `${str(state.opening)} ${str(state.sample_from_the_middle)}`;
+      const digits = (text.match(/\d+/g) ?? []).length;
+      const generic = (text.toLowerCase().match(/качествен[аои]? услуг|професионалист|достъпни цени|индивидуален подход|лидер на пазара|най-добр[иао]/g) ?? []).length;
+      return scoreAnswer(levelsOf(q), clamp(0.7 + Math.min(2.8, digits * 0.35) - generic * 0.5 + w(0.2), 0, 4));
+    }
+    case 'cites_sources': {
+      const bucket = str(state.other_sites_linked);
+      const text = `${str(state.opening)} ${str(state.sample_from_the_middle)}`.toLowerCase();
+      const base = { none: 0.1, few: 0.35, several: 0.65, many: 0.85 }[bucket as 'few'] ?? 0.2;
+      return noulAnswer(base + (/според|по данни на|източник|изследване|проучване/.test(text) ? 0.1 : 0) + w(0.03));
+    }
+
+    // ── whole-site audit: does the page answer a buyer's question? ──
+    case 'answers_question': {
+      const page = isObj(state.page) ? state.page : {};
+      const question = str(state.buyer_question);
+      const head = `${str(page.title)} ${str(page.h1)} ${list(page.subheadings).join(' ')}`;
+      const cov = 0.65 * coverage(question, head) + 0.35 * coverage(question, str(page.most_relevant_passage));
+      return scoreAnswer(levelsOf(q), clamp(4.3 * cov ** 1.15 + w(0.2), 0, 4));
+    }
+    case 'angle_fits': {
+      const page = isObj(state.page) ? state.page : {};
+      const question = str(state.buyer_question).toLowerCase();
+      const text = `${str(page.title)} ${str(page.h1)} ${list(page.subheadings).join(' ')} ${str(page.most_relevant_passage)}`.toLowerCase();
+      if (/разлика|сравн|срещу|\bvs\b|по-добър|алтернатив|или /.test(question)) return noulAnswer(/сравнен|срещу|\bvs\b|разлика|алтернатив/.test(text) ? 0.84 : 0.24);
+      if (/колко струва|цена|цени|струва|такса/.test(question)) return noulAnswer(/цена|цени|лв|€|струва/.test(text) ? 0.84 : 0.28);
+      if (/^как |как да|как се|стъпки/.test(question)) return noulAnswer(/как |стъпки|ръководство|процес/.test(text) ? 0.8 : 0.38);
+      return noulAnswer(0.58 + w(0.08));
+    }
+
+    // ── whole-site audit: buyer questions ──
+    case 'question_stage': {
+      const question = str(state.buyer_question).toLowerCase();
+      const options = keys(q);
+      const pick = (stage: string, p: number, runners: string[]): Json => choiceAnswer(options, options.includes(stage) ? stage : (options[0] as string), p, runners.filter((r) => options.includes(r)));
+      if (/колко струва|цена|цени|струва|такса|абонамент|евро|лв/.test(question)) return pick('price', 0.78, ['compare', 'discover']);
+      if (/софия|пловдив|варна|бургас|русе|плевен|стара загора|близо до|в моя град/.test(question)) return pick('local', 0.72, ['discover']);
+      if (/разлика|сравн|срещу|\bvs\b|по-добър|най-добр|топ \d+|алтернатив| или /.test(question)) return pick('compare', 0.74, ['discover', 'trust']);
+      if (/надежден|сигурен|отзиви|мнения|гаранция|измама|доверие|качествен/.test(question)) return pick('trust', 0.72, ['compare']);
+      if (/^как |как да|как се|какво е|стъпки|ръководство|може ли|трябва ли|нужен ли/.test(question)) return pick('howto', 0.74, ['discover']);
+      return pick('discover', 0.62, ['compare', 'howto']);
+    }
+    case 'recommendation': {
+      const brand = str(state.brand).toLowerCase();
+      const answer = str(state.assistant_answer).toLowerCase();
+      const options = keys(q);
+      const pick = (v: string, p: number, runners: string[]): Json => choiceAnswer(options, options.includes(v) ? v : (options[0] as string), p, runners.filter((r) => options.includes(r)));
+      const at = brand ? answer.indexOf(brand) : -1;
+      if (at < 0) return pick('not_mentioned', 0.92, ['mentioned_neutral']);
+      const around = answer.slice(Math.max(0, at - 160), at + brand.length + 220);
+      if (/не препоръч|избягвай|внимание|проблем|жалби|измама/.test(around)) return pick('discouraged', 0.66, ['mentioned_neutral']);
+      if (/препоръч|най-добър|добър избор|силен избор|надежден|отличен|водещ/.test(around)) return pick('recommended', 0.72, ['mentioned_neutral']);
+      return pick('mentioned_neutral', 0.62, ['recommended']);
+    }
+
     default:
       // Unknown question: stay neutral rather than inventing a decision.
       if (q.type === 'noul') return noulAnswer(0.5);

@@ -6,6 +6,7 @@ import type { Heading, PageMetrics } from '../../shared/schemas';
 import { stripInvisible } from '../../shared/text';
 import type { ExtractedPage } from '../jev/questions';
 import { containsKeyword, coverage, looksLikeQuestion, slugMatchesKeyword, startsWithKeyword } from '../nlp/bg';
+import { domainOf } from '../providers/serp/types';
 
 // Turns raw HTML into measured on-page facts plus the few text slices Jev needs.
 // Everything numeric lives here, in code — Jev is not a calculator (docs.typesafe.ai/model-jaggedness/jev-1.13).
@@ -394,6 +395,491 @@ function contextsAround(text: string, re: RegExp, radius: number, limit: number)
   return out;
 }
 
+// ── page facts: dates, tables, lists, cited sources, author, FAQ ────────────────────────────────
+// Each step is one pass over the (already bounded) tree or a bounded probe: nothing revisits a subtree, nothing nests a
+// scan inside a scan, and every count stops at MAX_ELEMENTS, so a page of 100 000 lists, tables or links costs what one
+// of 5 000 does. JSON-LD is walked with an explicit stack and a node budget (JSON.parse accepts nesting that would
+// overflow the call stack of a recursive walk).
+
+const DAY_MS = 86_400_000;
+const MIN_PAGE_DATE_MS = Date.UTC(1995, 0, 1);
+const MAX_DATE_ATTR = 64;
+const MAX_JSON_LD_NODES = 20_000;
+const MAX_FAQ_QUESTIONS = 50;
+const MAX_EXTERNAL_DOMAINS = 200;
+const MAX_HREF = 2_048;
+/** Text examined around an element to decide what it is (a date label, a byline): enough for a label, never a subtree. */
+const MAX_PROBE_CHARS = 400;
+const MAX_PROBE_STEPS = 200;
+/** All such probes on one page together; past it, no more are made. */
+const PROBE_BUDGET = 60_000;
+
+// Anchored, fixed-width groups: no backtracking whatever the input (which is cut to MAX_DATE_ATTR characters first).
+const ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d{1,9}))?)?)?\s?(Z|[+-]\d{2}(?::?\d{2})?)?$/i;
+// "Последна актуализация" (the usual Bulgarian label) and "обновяване" are nouns, so the adjective forms alone would miss them
+const MODIFIED_RE = /updated|modified|обновен|обновяван|актуализиран|актуализаци|последна промяна/iu;
+const PUBLISHED_CLASS_RE = /date|publish|posted|byline|meta/iu;
+const PUBLISHED_OWN_RE = /publish/iu;
+const AUTHOR_CLASS_RE = /(^|[-_ ])(author|byline|autor)([-_ ]|$)/iu;
+/** Sites that are linked for sharing and profiles, not as sources: they say nothing about whether a page cites anything. */
+const SOCIAL_DOMAINS: ReadonlySet<string> = new Set([
+  'facebook.com', 'instagram.com', 'linkedin.com', 'twitter.com', 'x.com', 'youtube.com', 'youtu.be', 'tiktok.com', 'pinterest.com', 't.me', 'wa.me', 'whatsapp.com',
+]);
+
+/** A date a page claims, as an ISO string — or null when it is not a real calendar date between 1995-01-01 and tomorrow. */
+function parsePageDate(raw: string | undefined, now: Date): string | null {
+  if (raw === undefined || raw.length > MAX_DATE_ATTR) return null;
+  const m = ISO_DATE_RE.exec(raw.trim());
+  if (!m) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const hour = m[4] === undefined ? 0 : Number(m[4]);
+  const minute = m[5] === undefined ? 0 : Number(m[5]);
+  const second = m[6] === undefined ? 0 : Number(m[6]);
+  const millis = m[7] === undefined ? 0 : Number(m[7].slice(0, 3).padEnd(3, '0'));
+  if (year < 1995 || month < 1 || month > 12 || day < 1 || hour > 23 || minute > 59 || second > 59) return null;
+  const local = Date.UTC(year, month - 1, day, hour, minute, second, millis);
+  if (new Date(local).getUTCDate() !== day) return null; // "31 February" would silently become March
+  let offsetMinutes = 0; // a date without a zone is read as UTC, so the result does not depend on the server's time zone
+  const zone = m[8];
+  if (zone !== undefined && zone.toUpperCase() !== 'Z') {
+    const digits = zone.slice(1).replace(':', '');
+    const zoneHours = Number(digits.slice(0, 2));
+    const zoneMinutes = digits.length > 2 ? Number(digits.slice(2)) : 0;
+    if (zoneHours > 23 || zoneMinutes > 59) return null;
+    offsetMinutes = (zone.startsWith('-') ? -1 : 1) * (zoneHours * 60 + zoneMinutes);
+  }
+  const at = local - offsetMinutes * 60_000;
+  if (at < MIN_PAGE_DATE_MS || at > now.getTime() + DAY_MS) return null;
+  return new Date(at).toISOString();
+}
+
+/** The first of `candidates` that is a usable date. */
+function firstDate(candidates: readonly string[], now: Date): string | null {
+  for (const candidate of candidates) {
+    const iso = parsePageDate(candidate, now);
+    if (iso !== null) return iso;
+  }
+  return null;
+}
+
+/** The text of a subtree, read only as far as `maxChars` / `maxSteps` allow; `complete` says the whole subtree was read. */
+function probeText(root: AnyNode, maxChars: number, maxSteps: number): { text: string; complete: boolean; steps: number } {
+  const parts: string[] = [];
+  let chars = 0;
+  let steps = 0;
+  const stack: AnyNode[] = [root];
+  while (stack.length > 0) {
+    const n = stack.pop() as AnyNode;
+    if (++steps > maxSteps) return { text: parts.join(''), complete: false, steps };
+    if (n.type === 'text') {
+      parts.push(n.data.slice(0, maxChars + 1));
+      chars += n.data.length;
+      if (chars > maxChars) return { text: parts.join(''), complete: false, steps };
+      continue;
+    }
+    if (n.type === 'comment') continue;
+    const kids = childrenOf(n);
+    // only the children that could still be reached within the step limit are queued
+    for (let i = Math.min(kids.length, maxSteps - steps + 1) - 1; i >= 0; i--) stack.push(kids[i] as ChildNode);
+  }
+  return { text: parts.join(''), complete: true, steps };
+}
+
+/** What is written in front of `el` inside its parent: the previous siblings' text, nearest first, up to `max` characters; a previous <time> ends it. */
+function textBefore(el: Element, max: number): { text: string; steps: number } {
+  const parts: string[] = [];
+  let chars = 0;
+  let steps = 0;
+  for (let sibling = el.prev, seen = 0; sibling && seen < 20 && chars < max; sibling = sibling.prev, seen++) {
+    if (isElement(sibling) && sibling.name === 'time') break;
+    const probe = probeText(sibling, max, 50);
+    steps += probe.steps;
+    parts.push(probe.text);
+    chars += probe.text.length;
+  }
+  return { text: parts.join(' '), steps };
+}
+
+const hasToken = (value: string | undefined, token: string): boolean => value !== undefined && value.length <= 200 && value.toLowerCase().split(/\s+/).includes(token);
+const attrText = (el: Element): string => `${el.attribs.class ?? ''} ${el.attribs.id ?? ''}`.slice(0, 400);
+
+const asStrings = (value: unknown): string[] => (typeof value === 'string' ? [value] : Array.isArray(value) ? value.filter((x): x is string => typeof x === 'string').slice(0, 5) : []);
+const hasSchemaType = (node: Record<string, unknown>, name: string): boolean => asStrings(node['@type']).some((t) => t.slice(0, 100).toLowerCase().endsWith(name));
+
+function hasAuthorValue(value: unknown, depth = 0): boolean {
+  if (typeof value === 'string') return value.trim().length >= 2;
+  if (Array.isArray(value)) return depth < 2 && value.slice(0, 10).some((x) => hasAuthorValue(x, depth + 1));
+  if (value && typeof value === 'object') {
+    const o = value as Record<string, unknown>;
+    return (typeof o.name === 'string' && o.name.trim().length >= 2) || (typeof o['@id'] === 'string' && o['@id'].length > 0);
+  }
+  return false;
+}
+
+interface JsonLdFacts {
+  modified: string[];
+  published: string[];
+  hasAuthor: boolean;
+  faqQuestions: number;
+}
+
+/**
+ * dateModified, datePublished, author and the FAQ questions of the page-level JSON-LD entities (top level and @graph
+ * members; nested objects such as a Review's own datePublished describe other things). Scripts that are not valid JSON are skipped.
+ */
+function readJsonLd(scripts: readonly string[], now: Date): JsonLdFacts {
+  const facts: JsonLdFacts = { modified: [], published: [], hasAuthor: false, faqQuestions: 0 };
+  let budget = MAX_JSON_LD_NODES;
+  for (const raw of scripts) {
+    const text = raw.trim();
+    if (!text || text.length > 200_000) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      continue;
+    }
+    const stack: unknown[] = [parsed];
+    while (stack.length > 0 && budget > 0) {
+      const node = stack.pop();
+      if (Array.isArray(node)) {
+        for (const item of node) stack.push(item);
+        continue;
+      }
+      if (!node || typeof node !== 'object') continue;
+      budget--;
+      const obj = node as Record<string, unknown>;
+      for (const value of asStrings(obj.dateModified)) {
+        const iso = parsePageDate(value, now);
+        if (iso !== null) facts.modified.push(iso);
+      }
+      for (const value of asStrings(obj.datePublished)) {
+        const iso = parsePageDate(value, now);
+        if (iso !== null) facts.published.push(iso);
+      }
+      if (!facts.hasAuthor && hasAuthorValue(obj.author)) facts.hasAuthor = true;
+      if (hasSchemaType(obj, 'faqpage')) {
+        const entities = Array.isArray(obj.mainEntity) ? obj.mainEntity.slice(0, 1_000) : [obj.mainEntity];
+        for (const entity of entities) {
+          if (entity && typeof entity === 'object' && hasSchemaType(entity as Record<string, unknown>, 'question')) facts.faqQuestions++;
+        }
+      }
+      if (obj['@graph'] !== undefined) stack.push(obj['@graph']);
+    }
+  }
+  return facts;
+}
+
+interface DocumentFacts {
+  /** Dates from JSON-LD and <meta> tags, in order of preference; null = none of them is a usable date. */
+  modifiedAt: string | null;
+  publishedAt: string | null;
+  /** JSON-LD author, <meta itemprop="author">, <link rel="author">. */
+  hasAuthor: boolean;
+  faqQuestions: number;
+}
+
+/**
+ * What only exists before stripNoise: <script type="application/ld+json"> and <meta>/<link> are noise elements and are
+ * gone afterwards. One pass over the tree; JSON-LD is read from the first 20 scripts, <meta> from the first MAX_ELEMENTS.
+ */
+function readDocumentFacts(root: ParentNode, now: Date): DocumentFacts {
+  const scripts: string[] = [];
+  const articleModified: string[] = [];
+  const ogUpdated: string[] = [];
+  const itemModified: string[] = [];
+  const articlePublished: string[] = [];
+  const itemPublished: string[] = [];
+  let hasAuthor = false;
+  let metas = 0;
+  const keep = (list: string[], value: string | undefined): void => {
+    if (value !== undefined && value.length <= MAX_DATE_ATTR && list.length < 5) list.push(value);
+  };
+
+  const stack: AnyNode[] = [root];
+  while (stack.length > 0) {
+    const n = stack.pop() as AnyNode;
+    if (isElement(n)) {
+      const a = n.attribs;
+      if (n.name === 'script') {
+        if (scripts.length < 20 && (a.type ?? '').trim().toLowerCase().startsWith('application/ld+json')) scripts.push(plainText(n));
+        continue; // a script holds text only
+      }
+      if (n.name === 'meta') {
+        if (++metas <= MAX_ELEMENTS) {
+          const names = [a.property, a.name].map((v) => (v ?? '').trim().toLowerCase());
+          const item = (a.itemprop ?? '').trim().toLowerCase();
+          if (names.includes('article:modified_time')) keep(articleModified, a.content);
+          if (names.includes('og:updated_time')) keep(ogUpdated, a.content);
+          if (names.includes('article:published_time')) keep(articlePublished, a.content);
+          if (item === 'datemodified') keep(itemModified, a.content);
+          if (item === 'datepublished') keep(itemPublished, a.content);
+          if (item === 'author' && (a.content ?? '').trim().length >= 2) hasAuthor = true;
+        }
+        continue;
+      }
+      if (n.name === 'link') {
+        if (hasToken(a.rel, 'author')) hasAuthor = true;
+        continue;
+      }
+    }
+    const kids = childrenOf(n);
+    for (let i = kids.length - 1; i >= 0; i--) stack.push(kids[i] as ChildNode);
+  }
+
+  const ld = readJsonLd(scripts, now);
+  // JSON-LD may describe several entities (WebPage, Article): the latest modification and the earliest publication win
+  const latest = ld.modified.length > 0 ? ld.modified.reduce((a, b) => (b > a ? b : a)) : null;
+  const earliest = ld.published.length > 0 ? ld.published.reduce((a, b) => (b < a ? b : a)) : null;
+  return {
+    modifiedAt: latest ?? firstDate(articleModified, now) ?? firstDate(ogUpdated, now) ?? firstDate(itemModified, now),
+    publishedAt: earliest ?? firstDate(articlePublished, now) ?? firstDate(itemPublished, now),
+    hasAuthor: hasAuthor || ld.hasAuthor,
+    faqQuestions: Math.min(ld.faqQuestions, MAX_FAQ_QUESTIONS),
+  };
+}
+
+const isNavOrAside = (el: Element): boolean => el.name === 'nav' || el.name === 'aside' || el.attribs.role === 'navigation' || el.attribs.role === 'complementary';
+
+interface MarkupFacts {
+  hasAuthor: boolean;
+  modifiedItemprop: string | null;
+  modified: string | null;
+  publishedItemprop: string | null;
+  published: string | null;
+}
+
+/**
+ * Facts that need the visible markup (hidden elements are already gone): author markup and <time> elements.
+ * A <time datetime> counts as the modification date when it, or what surrounds it, is labelled "updated", and as the
+ * publication date when it sits in an <article> / <header> or something classed date/publish/posted/byline/meta;
+ * times in menus and sidebars (other posts' dates) never count.
+ */
+function readMarkupFacts(root: AnyNode, now: Date): MarkupFacts {
+  const facts: MarkupFacts = { hasAuthor: false, modifiedItemprop: null, modified: null, publishedItemprop: null, published: null };
+  let budget = PROBE_BUDGET;
+  let times = 0;
+
+  /** How many <time> elements an element has as direct children (cached: a parent with thousands of them is asked about once). */
+  const timesIn = new WeakMap<Element, number>();
+  const timeChildren = (parent: Element): number => {
+    let n = timesIn.get(parent);
+    if (n === undefined) {
+      n = 0;
+      for (const c of parent.children) if (isElement(c) && c.name === 'time') n++;
+      timesIn.set(parent, n);
+    }
+    return n;
+  };
+  /** Does the <time>, or what labels it, call itself "updated"? Its own class, id or text; the label written in front of it; the class of the few elements above it. */
+  const looksModified = (el: Element): boolean => {
+    if (MODIFIED_RE.test(attrText(el))) return true;
+    const own = probeText(el, 200, 50);
+    budget -= own.steps;
+    if (MODIFIED_RE.test(own.text)) return true;
+    let node: Element = el;
+    for (let level = 0; level < 3; level++) {
+      const parent = node.parent;
+      if (!parent || !isElement(parent)) break;
+      if (MODIFIED_RE.test(attrText(parent))) return true;
+      // "Published: <time> | Updated: <time>": a label belongs to the date that follows it, so only the text in front counts …
+      const before = textBefore(node, 80);
+      budget -= before.steps;
+      if (MODIFIED_RE.test(before.text)) return true;
+      // … unless the date is the only one in its parent, when the parent's whole text (label before or after) describes it
+      if (level === 0 && timeChildren(parent) === 1) {
+        const around = probeText(parent, MAX_PROBE_CHARS, MAX_PROBE_STEPS);
+        budget -= around.steps;
+        if (MODIFIED_RE.test(around.text)) return true;
+      }
+      node = parent;
+    }
+    return false;
+  };
+  const looksPublished = (el: Element): boolean => {
+    if (PUBLISHED_CLASS_RE.test(attrText(el))) return true;
+    let depth = 0;
+    for (let up = el.parent; up && isElement(up) && depth < MAX_DEPTH; up = up.parent, depth++) {
+      if (up.name === 'article' || up.name === 'header') return true;
+      if (depth < 3 && PUBLISHED_CLASS_RE.test(attrText(up))) return true;
+    }
+    return false;
+  };
+  const inMenuOrSidebar = (el: Element): boolean => {
+    let depth = 0;
+    for (let up = el.parent; up && isElement(up) && depth < MAX_DEPTH; up = up.parent, depth++) if (isNavOrAside(up)) return true;
+    return false;
+  };
+
+  const stack: AnyNode[] = [root];
+  while (stack.length > 0) {
+    const n = stack.pop() as AnyNode;
+    const kids = childrenOf(n);
+    for (let i = kids.length - 1; i >= 0; i--) stack.push(kids[i] as ChildNode);
+    if (!isElement(n)) continue;
+    const a = n.attribs;
+
+    if (!facts.hasAuthor) {
+      if (hasToken(a.itemprop, 'author') || hasToken(a.rel, 'author')) facts.hasAuthor = true;
+      else if (budget > 0 && (a.class !== undefined || a.id !== undefined)) {
+        const label = `${a.class ?? ''}`.slice(0, 1_000);
+        const id = `${a.id ?? ''}`.slice(0, 1_000);
+        if (AUTHOR_CLASS_RE.test(label) || AUTHOR_CLASS_RE.test(id)) {
+          // a byline is a name, not a biography: 2–80 characters of text, read in full
+          const probe = probeText(n, MAX_PROBE_CHARS, MAX_PROBE_STEPS);
+          budget -= probe.steps;
+          const length = squash(probe.text).length;
+          if (probe.complete && length >= 2 && length <= 80) facts.hasAuthor = true;
+        }
+      }
+    }
+
+    const allFound = facts.modified !== null && facts.published !== null && facts.modifiedItemprop !== null && facts.publishedItemprop !== null;
+    if (n.name === 'time' && a.datetime !== undefined && !allFound && budget > 0 && ++times <= MAX_ELEMENTS) {
+      const iso = parsePageDate(a.datetime, now);
+      if (iso === null || inMenuOrSidebar(n)) continue;
+      const item = (a.itemprop ?? '').toLowerCase();
+      if (item.includes('datemodified')) facts.modifiedItemprop ??= iso;
+      if (item.includes('datepublished')) facts.publishedItemprop ??= iso;
+      const modified = looksModified(n);
+      if (modified && facts.modified === null) facts.modified = iso;
+      // a time labelled "updated" is not the publication date, unless it says so itself (WordPress: class="published updated")
+      if (facts.published === null && (!modified || PUBLISHED_OWN_RE.test(attrText(n))) && looksPublished(n)) facts.published = iso;
+    }
+  }
+  return facts;
+}
+
+interface StructureFacts {
+  tables: number;
+  lists: number;
+  externalDomains: number;
+}
+
+/**
+ * Tables, lists and the sites a page links to, in one pass that does not enter navigation, footers or sidebars (and,
+ * for lists, headers). A table counts with at least 2 rows and 2 cells in its first row; a list with at least 3 direct
+ * <li>; a link counts as a source when it leads to another site than the page's, is not a social/share link and is not
+ * marked sponsored or ugc.
+ */
+function readStructureFacts(root: AnyNode, pageUrl: string): StructureFacts {
+  let base: URL | null = null;
+  try {
+    base = new URL(pageUrl);
+  } catch {
+    base = null; // only absolute links can be told apart then
+  }
+  const ownDomain = domainOf(pageUrl);
+  const domainOfHost = new Map<string, string>();
+  const domains = new Set<string>();
+  const openTables: Array<{ rows: number; firstRowCells: number; counted: boolean }> = [];
+  let tables = 0;
+  let lists = 0;
+  let tablesSeen = 0;
+  let listsSeen = 0;
+  let linksSeen = 0;
+  let headerDepth = 0;
+  const LEAVE_TABLE = Symbol('leave table');
+  const LEAVE_HEADER = Symbol('leave header');
+
+  const cellsOf = (row: Element): number => {
+    let cells = 0;
+    for (const c of row.children) if (isElement(c) && (c.name === 'td' || c.name === 'th')) cells++;
+    return cells;
+  };
+  const hasItems = (list: Element, wanted: number): boolean => {
+    let items = 0;
+    for (const c of list.children) if (isElement(c) && c.name === 'li' && ++items >= wanted) return true;
+    return false;
+  };
+  const sourceOf = (el: Element): string | null => {
+    const href = (el.attribs.href ?? '').trim();
+    if (href === '' || href.length > MAX_HREF || href.startsWith('#') || (href.startsWith('/') && !href.startsWith('//'))) return null;
+    const rel = (el.attribs.rel ?? '').slice(0, 200).toLowerCase();
+    if (rel.includes('sponsored') || rel.includes('ugc')) return null;
+    let url: URL;
+    try {
+      url = base ? new URL(href, base) : new URL(href);
+    } catch {
+      return null;
+    }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    let domain = domainOfHost.get(url.hostname);
+    if (domain === undefined) {
+      domain = domainOf(url.hostname);
+      if (domainOfHost.size < 2_000) domainOfHost.set(url.hostname, domain);
+    }
+    return domain === '' || domain === ownDomain || SOCIAL_DOMAINS.has(domain) ? null : domain;
+  };
+
+  const stack: Array<AnyNode | typeof LEAVE_TABLE | typeof LEAVE_HEADER> = [root];
+  while (stack.length > 0) {
+    const n = stack.pop() as AnyNode | typeof LEAVE_TABLE | typeof LEAVE_HEADER;
+    if (n === LEAVE_TABLE) {
+      const t = openTables.pop();
+      if (t?.counted && t.rows >= 2 && t.firstRowCells >= 2) tables++;
+      continue;
+    }
+    if (n === LEAVE_HEADER) {
+      headerDepth--;
+      continue;
+    }
+    if (isElement(n)) {
+      if (isChrome(n)) continue;
+      if (n.name === 'table') {
+        openTables.push({ rows: 0, firstRowCells: -1, counted: ++tablesSeen <= MAX_ELEMENTS });
+        stack.push(LEAVE_TABLE);
+      } else if (n.name === 'tr') {
+        const t = openTables[openTables.length - 1];
+        if (t) {
+          t.rows++;
+          if (t.firstRowCells < 0) t.firstRowCells = cellsOf(n);
+        }
+      } else if (n.name === 'ul' || n.name === 'ol') {
+        if (headerDepth === 0 && ++listsSeen <= MAX_ELEMENTS && hasItems(n, 3)) lists++;
+      } else if (n.name === 'a') {
+        if (domains.size < MAX_EXTERNAL_DOMAINS && ++linksSeen <= MAX_ELEMENTS) {
+          const domain = sourceOf(n);
+          if (domain !== null) domains.add(domain);
+        }
+      } else if (n.name === 'header' || n.attribs.role === 'banner') {
+        headerDepth++;
+        stack.push(LEAVE_HEADER);
+      }
+    }
+    const kids = childrenOf(n);
+    for (let i = kids.length - 1; i >= 0; i--) stack.push(kids[i] as ChildNode);
+  }
+  return { tables, lists, externalDomains: domains.size };
+}
+
+/**
+ * Question-like headings (h2–h4) in an FAQ section: from a heading that names one ("Често задавани въпроси", "FAQ")
+ * until a heading of the same or a higher rank that is not itself a question. Questions that are headings of the same
+ * rank as the FAQ heading (a flat page) count too. Without such a heading the answer is 0.
+ */
+function countFaqHeadings(body: AnyNode): number {
+  let count = 0;
+  let sectionLevel = 0; // 0 = not inside an FAQ section
+  for (const { level, el } of collectHeadings(body, 400)) {
+    const probe = probeText(el, 300, 300);
+    const text = squash(probe.text);
+    if (!probe.complete || !text || text.length > 200) continue;
+    const question = level >= 2 && looksLikeQuestion(text);
+    if (!question && FAQ_HEADING_RE.test(text)) {
+      sectionLevel = level;
+      continue;
+    }
+    if (sectionLevel === 0) continue;
+    if (question) {
+      if (++count >= MAX_FAQ_QUESTIONS) break;
+    } else if (level <= sectionLevel) sectionLevel = 0;
+  }
+  return count;
+}
+
 export interface ExtractContext {
   /** The URL the HTML was fetched from (final URL after redirects). */
   url: string;
@@ -433,6 +919,8 @@ export function extractPage(html: string, ctx: ExtractContext): ExtractedPage {
   const lang = ($('html').attr('lang') ?? '').trim().slice(0, MAX_LANG) || null;
   const hasViewport = $('meta[name="viewport" i]').length > 0;
   const schemaTypes = jsonLdTypes($);
+  // scripts and <meta> tags are removed with the other noise below, so what they say is read first
+  const documentFacts = readDocumentFacts($.root().get(0) as unknown as ParentNode, now);
 
   const navLabels = uniqueLimited(
     $('nav a, header a, [role="navigation"] a')
@@ -489,6 +977,12 @@ export function extractPage(html: string, ctx: ExtractContext): ExtractedPage {
 
   const author =
     $('[rel="author"], [itemprop="author"], .author, .byline, .post-author').length > 0 || /(?<![\p{L}])автор\s*:/iu.test(allText);
+
+  // ── dates, tables, lists, cited sources, author, FAQ (see "page facts") ───────────────────────
+  const markupFacts = readMarkupFacts(bodyNode, now);
+  const structureFacts = readStructureFacts(bodyNode, ctx.url);
+  const faqQuestions = documentFacts.faqQuestions > 0 ? documentFacts.faqQuestions : countFaqHeadings(bodyNode);
+  checkBudget('факти');
 
   // ── main content ────────────────────────────────────────────────────────────────────────────
   let contentRoot: AnyNode | null = null;
@@ -602,6 +1096,13 @@ export function extractPage(html: string, ctx: ExtractContext): ExtractedPage {
     socialProof,
     navLabels,
     latestYear,
+    modifiedAt: documentFacts.modifiedAt ?? markupFacts.modifiedItemprop ?? markupFacts.modified,
+    publishedAt: documentFacts.publishedAt ?? markupFacts.publishedItemprop ?? markupFacts.published,
+    tables: structureFacts.tables,
+    lists: structureFacts.lists,
+    externalDomains: structureFacts.externalDomains,
+    hasAuthor: author || documentFacts.hasAuthor || markupFacts.hasAuthor,
+    faqQuestions,
     keyword: {
       inTitle: containsKeyword(ctx.keyword, kwTitle),
       inH1: h1.some((h) => containsKeyword(ctx.keyword, h)),

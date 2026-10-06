@@ -8,9 +8,10 @@ import { bodyLimit } from 'hono/body-limit';
 import { secureHeaders } from 'hono/secure-headers';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
+import { SiteAuditRequestSchema } from '../shared/audit';
 import { AnalyzeRequestSchema, DomainSchema, SettingsPatchSchema } from '../shared/schemas';
 import { isBlockedAddress } from './crawl/ssrf';
-import { attachment, opportunitiesCsv, reportMarkdown } from './export';
+import { attachment, auditElementsCsv, auditMarkdown, opportunitiesCsv, reportMarkdown } from './export';
 import type { JobManager } from './jobs';
 import { fileSlug } from './nlp/bg';
 import { PipelineError } from './pipeline/analyze';
@@ -199,6 +200,69 @@ export function createApp(deps: AppDeps): Hono {
       if (err instanceof PipelineError) return fail(c, 429, 'busy', err.message);
       throw err;
     }
+  });
+
+  // ───────────── whole-site audits ─────────────
+  app.post('/api/audits', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body || typeof body !== 'object') return fail(c, 400, 'invalid_json', 'Очаква се JSON.');
+    // Whatever the form left blank comes from the saved profile.
+    const settings = await store.getSettings();
+    const asText = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
+    const merged = {
+      ...body,
+      domain: asText(body.domain) || settings.ownDomain || '',
+      businessDescription: asText(body.businessDescription) || settings.businessDescription,
+      brandNames: Array.isArray(body.brandNames) ? body.brandNames : settings.brandNames,
+      competitors: Array.isArray(body.competitors) ? body.competitors : settings.competitors.map((x) => x.domain),
+    };
+    const parsed = SiteAuditRequestSchema.safeParse(merged);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      return fail(c, 422, 'invalid', `${issue?.path.join('.') || 'заявка'}: ${issue?.message ?? 'невалидни данни'}`);
+    }
+    const request = {
+      ...parsed.data,
+      options: {
+        ...parsed.data.options,
+        maxPages: Math.min(parsed.data.options.maxPages, config.audit.maxPages),
+        questions: Math.min(parsed.data.options.questions, config.audit.maxQuestions),
+      },
+    };
+    if ((await store.listAudits()).length >= config.limits.maxReports) {
+      return fail(c, 409, 'limit', `Достигнат е лимитът от ${config.limits.maxReports} запазени одита. Изтрий стари одити и опитай пак.`);
+    }
+    if (!config.demo && !config.jev) return fail(c, 503, 'jev_not_configured', 'Jev не е настроен. Добави JEV_API_KEY в .env и рестартирай сървъра.');
+    try {
+      return c.json({ job: jobs.startAudit(request) }, 202);
+    } catch (err) {
+      if (err instanceof PipelineError) return fail(c, 429, 'busy', err.message);
+      throw err;
+    }
+  });
+
+  app.get('/api/audits', async (c) => c.json({ audits: await store.listAudits() }));
+
+  app.get('/api/audits/:id', async (c) => {
+    const audit = await store.getAudit(c.req.param('id'));
+    return audit ? c.json({ audit }) : fail(c, 404, 'not_found', 'Одитът не е намерен.');
+  });
+
+  app.delete('/api/audits/:id', async (c) => {
+    const id = c.req.param('id');
+    if (!ID_PATTERN.test(id)) return fail(c, 404, 'not_found', 'Одитът не е намерен.');
+    return (await store.deleteAudit(id)) ? c.json({ ok: true }) : fail(c, 404, 'not_found', 'Одитът не е намерен.');
+  });
+
+  app.get('/api/audits/:id/export', async (c) => {
+    const audit = await store.getAudit(c.req.param('id'));
+    if (!audit) return fail(c, 404, 'not_found', 'Одитът не е намерен.');
+    const format = c.req.query('format') ?? 'json';
+    const slug = fileSlug(audit.site.domain) || audit.id;
+    if (format === 'csv') return new Response(auditElementsCsv(audit), { headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': attachment(`seo-elements-${slug}.csv`) } });
+    if (format === 'md') return new Response(auditMarkdown(audit), { headers: { 'content-type': 'text/markdown; charset=utf-8', 'content-disposition': attachment(`audit-${slug}.md`) } });
+    if (format === 'json') return new Response(JSON.stringify(audit, null, 2), { headers: { 'content-type': 'application/json; charset=utf-8', 'content-disposition': attachment(`audit-${slug}.json`) } });
+    return fail(c, 400, 'invalid_format', 'Форматът трябва да е json, csv или md.');
   });
 
   app.get('/api/jobs', (c) => c.json({ jobs: jobs.list() }));

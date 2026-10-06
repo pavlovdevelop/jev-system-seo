@@ -18,6 +18,8 @@ services:
         sync: false
       - key: APP_PASSWORD
         generateValue: true
+      # Optional, added by hand in the service's Environment tab (not listed here, so a Blueprint sync never asks for them):
+      # OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY — let the whole-site audit ask ChatGPT, Claude and Gemini.
     # The free plan has a temporary file system: reports, settings and the cache are lost whenever the service
     # sleeps (after 15 idle minutes), restarts or redeploys. To keep them, change `plan` to 0.5c-512mb (Starter)
     # and uncomment the disk below.

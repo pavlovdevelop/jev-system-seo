@@ -1,6 +1,8 @@
 import { noul } from '@typesafe-ai/sdk';
 import { ConfigError, describeJev, loadConfig } from '../src/server/config';
 import { Jev, JevError, createSdkTransport, toJevError } from '../src/server/jev/client';
+import { createEngines } from '../src/server/geo/engines';
+import { EngineError, locationFor } from '../src/server/geo/engines/types';
 import { SerperProvider } from '../src/server/providers/serp/serper';
 import { DataForSeoProvider } from '../src/server/providers/serp/dataforseo';
 import { SerpError } from '../src/server/providers/serp/types';
@@ -9,6 +11,8 @@ import { MARKETS } from '../src/shared/markets';
 // `npm run doctor` — checks that the keys in .env actually work, before you spend a whole analysis finding out.
 //   npm run doctor            checks Jev
 //   npm run doctor -- --serp  also runs one tiny SERP query (costs one search credit)
+//   npm run doctor -- --engines  checks the ChatGPT / Claude / Gemini keys with a tiny request each (a few tokens)
+//   npm run doctor -- --engines --ask  also asks each of them one question with web search on (about a cent each)
 
 try {
   process.loadEnvFile('.env');
@@ -71,6 +75,31 @@ async function main(): Promise<void> {
     }
   }
   console.log(config.volume ? '  ✔ Търсения/мес: DataForSEO е настроен' : '  · Търсения/мес: не е настроен (по желание)');
+
+  // ── AI assistants (GEO) ──
+  const engines = createEngines(config.engines);
+  if (engines.length === 0) {
+    console.log('  · ИИ двигатели: няма ключове (OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY). Без тях одитът на сайта работи, но не проверява какво казват ChatGPT, Claude и Gemini.');
+  } else if (!process.argv.includes('--engines')) {
+    ok(`ИИ двигатели: ${engines.map((e) => `${e.label} (${e.model})`).join(', ')} — не са тествани (добави „-- --engines“)`);
+  } else {
+    for (const engine of engines) {
+      const t0 = Date.now();
+      try {
+        await engine.generate({ prompt: 'Reply with the single word: ok', maxTokens: 60 });
+        ok(`${engine.label} (${engine.model}) отговаря за ${Date.now() - t0} ms`);
+        if (process.argv.includes('--ask')) {
+          const t1 = Date.now();
+          const a = await engine.ask('Колко струва изработката на уебсайт за малка фирма в България?', { location: locationFor('bg') });
+          ok(`${engine.label}: отговор с търсене за ${Date.now() - t1} ms — ${a.citations.length} цитирани източника${a.searched ? '' : ' (търсенето не е работило)'}`);
+        }
+      } catch (err) {
+        bad(`${engine.label} (${engine.model}): ${err instanceof EngineError || err instanceof Error ? err.message : String(err)}`);
+        if (err instanceof EngineError && err.kind === 'model') console.log(`    → Моделът не е намерен. Задай друг в ${engine.id === 'openai' ? 'OPENAI_MODEL' : engine.id === 'anthropic' ? 'ANTHROPIC_MODEL' : 'GEMINI_MODEL'}.`);
+        process.exitCode = 1;
+      }
+    }
+  }
   console.log('');
 }
 

@@ -22,6 +22,7 @@
     "doctor": "tsx scripts/doctor.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
     "@hono/node-server": "^2.1.3",
     "@typesafe-ai/sdk": "0.6.0",
     "cheerio": "^1.2.0",

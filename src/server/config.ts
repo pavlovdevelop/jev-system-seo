@@ -16,6 +16,20 @@ export type SerpConfig =
   | { provider: 'serper'; apiKey: string }
   | { provider: 'dataforseo'; login: string; password: string };
 
+/** Credentials and model of one AI assistant that can be asked about the business (GEO). */
+export interface EngineKeyConfig {
+  apiKey: string;
+  model: string;
+}
+
+export interface EnginesConfig {
+  openai: EngineKeyConfig | null;
+  anthropic: EngineKeyConfig | null;
+  gemini: EngineKeyConfig | null;
+}
+
+export type WriterEngine = 'openai' | 'anthropic' | 'gemini';
+
 export interface AppConfig {
   host: string;
   port: number;
@@ -28,6 +42,12 @@ export interface AppConfig {
   serp: SerpConfig | null;
   /** DataForSEO credentials used for search volumes (independent of the SERP provider). */
   volume: { login: string; password: string } | null;
+  /** The AI assistants whose answers are checked (ChatGPT, Claude, Gemini); each one is optional. */
+  engines: EnginesConfig;
+  /** The assistant that writes proposals and checklists; null = fixed rules only. */
+  writer: WriterEngine | null;
+  /** Caps for the whole-site audit. */
+  audit: { maxPages: number; maxQuestions: number; maxEngineCalls: number };
   crawler: {
     userAgent: string;
     timeoutMs: number;
@@ -169,6 +189,37 @@ function resolveSerpConfig(env: NodeJS.ProcessEnv, problems: string[]): SerpConf
   return null;
 }
 
+export const DEFAULT_MODELS = { openai: 'gpt-6.1-sol', anthropic: 'claude-opus-5-5', gemini: 'gemini-3.8-flash' } as const;
+
+function resolveEngines(env: NodeJS.ProcessEnv): EnginesConfig {
+  const one = (key: string | undefined, model: string | undefined, fallback: string): EngineKeyConfig | null => {
+    const apiKey = clean(key);
+    return apiKey ? { apiKey, model: clean(model) ?? fallback } : null;
+  };
+  return {
+    openai: one(env.OPENAI_API_KEY, env.OPENAI_MODEL, DEFAULT_MODELS.openai),
+    anthropic: one(env.ANTHROPIC_API_KEY, env.ANTHROPIC_MODEL, DEFAULT_MODELS.anthropic),
+    gemini: one(env.GEMINI_API_KEY ?? env.GOOGLE_API_KEY, env.GEMINI_MODEL, DEFAULT_MODELS.gemini),
+  };
+}
+
+function resolveWriter(problems: string[], raw: string | undefined, engines: EnginesConfig): WriterEngine | null {
+  const wanted = clean(raw)?.toLowerCase();
+  if (wanted === 'none') return null;
+  if (wanted) {
+    if (wanted !== 'openai' && wanted !== 'anthropic' && wanted !== 'gemini') {
+      problems.push(`WRITER_ENGINE трябва да е anthropic, openai, gemini или none (получено: "${wanted}")`);
+      return null;
+    }
+    if (!engines[wanted]) {
+      problems.push(`WRITER_ENGINE=${wanted} изисква ключ за този двигател`);
+      return null;
+    }
+    return wanted;
+  }
+  return engines.anthropic ? 'anthropic' : engines.openai ? 'openai' : engines.gemini ? 'gemini' : null;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] = process.argv): AppConfig {
   const problems: string[] = [];
 
@@ -191,6 +242,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
   const dfsPassword = clean(env.DATAFORSEO_PASSWORD);
   const volumeEnabled = (clean(env.VOLUME_PROVIDER) ?? '').toLowerCase() !== 'none';
 
+  const engines = resolveEngines(env);
+  const writer = resolveWriter(problems, env.WRITER_ENGINE, engines);
+
   const config: AppConfig = {
     host,
     port,
@@ -201,6 +255,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     jev: resolveJevConfig(env, problems),
     serp: resolveSerpConfig(env, problems),
     volume: volumeEnabled && dfsLogin && dfsPassword ? { login: dfsLogin, password: dfsPassword } : null,
+    engines,
+    writer,
+    audit: {
+      maxPages: int(problems, 'MAX_AUDIT_PAGES', env.MAX_AUDIT_PAGES, 100, 1, 500),
+      maxQuestions: int(problems, 'MAX_GEO_QUESTIONS', env.MAX_GEO_QUESTIONS, 60, 0, 200),
+      maxEngineCalls: int(problems, 'MAX_GEO_CALLS_PER_RUN', env.MAX_GEO_CALLS_PER_RUN, 150, 0, 2000),
+    },
     crawler: {
       userAgent: clean(env.CRAWLER_USER_AGENT) ?? DEFAULT_USER_AGENT,
       timeoutMs: int(problems, 'CRAWL_TIMEOUT_MS', env.CRAWL_TIMEOUT_MS, 12_000, 1_000, 60_000),
